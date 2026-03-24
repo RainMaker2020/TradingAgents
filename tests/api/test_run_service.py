@@ -137,17 +137,100 @@ def test_completed_run_replays_without_re_running_graph(service, store):
     assert run_complete["data"]["decision"] == "BUY"
 
 
-def test_running_run_returns_in_progress_error(service, store):
+def test_reconnect_to_running_run_replays_stored_events(service, store):
+    """Navigating away and back while a run is in progress replays stored events
+    and waits for completion — no error, no second pipeline execution."""
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    store.add_report(run.id, "market_analyst:0", "bullish signal")
+    store.add_token_usage(run.id, "market_analyst:0", {"tokens_in": 100, "tokens_out": 50})
+
+    # Simulate the pipeline completing on the first poll cycle.
+    # We control store.get so that after the first snapshot read (replay),
+    # subsequent reads return COMPLETE status.
+    original_get = store.get
+    call_count = {"n": 0}
+
+    def get_with_completion(run_id):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            # Second read = first poll: pipeline "finished" while we were away
+            store.update_decision(run_id, "BUY")
+            store.update_status(run_id, RunStatus.COMPLETE)
+        return original_get(run_id)
+
+    with patch.object(store, "get", side_effect=get_with_completion):
+        with patch("api.services.run_service.time"):  # skip sleep
+            with patch("api.services.run_service.TradingAgentsGraph") as MockGraph:
+                events = list(service.stream_events(run.id))
+
+    assert MockGraph.call_count == 0  # no second pipeline
+
+    agent_completes = [e for e in events if e["event"] == "agent:complete"]
+    assert len(agent_completes) == 1
+    assert agent_completes[0]["data"]["step"] == "market_analyst"
+    assert agent_completes[0]["data"]["report"] == "bullish signal"
+    assert agent_completes[0]["data"]["tokens_in"] == 100
+    assert agent_completes[0]["data"]["tokens_out"] == 50
+
+    run_completes = [e for e in events if e["event"] == "run:complete"]
+    assert len(run_completes) == 1
+    assert run_completes[0]["data"]["decision"] == "BUY"
+
+
+def test_reconnect_to_running_run_picks_up_new_events(service, store):
+    """Events added to the store while polling are streamed to the reconnected client."""
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    store.add_report(run.id, "market_analyst:0", "market done")
+
+    original_get = store.get
+    call_count = {"n": 0}
+
+    def get_with_new_event(run_id):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            # On first poll, a new event appeared and run is now complete
+            store.add_report(run_id, "news_analyst:0", "news done")
+            store.update_decision(run_id, "SELL")
+            store.update_status(run_id, RunStatus.COMPLETE)
+        return original_get(run_id)
+
+    with patch.object(store, "get", side_effect=get_with_new_event):
+        with patch("api.services.run_service.time"):
+            with patch("api.services.run_service.TradingAgentsGraph"):
+                events = list(service.stream_events(run.id))
+
+    steps = [e["data"]["step"] for e in events if e["event"] == "agent:complete"]
+    assert "market_analyst" in steps
+    assert "news_analyst" in steps  # picked up during poll
+
+    run_completes = [e for e in events if e["event"] == "run:complete"]
+    assert run_completes[0]["data"]["decision"] == "SELL"
+
+
+def test_reconnect_to_running_run_emits_error_if_pipeline_fails(service, store):
+    """If the pipeline errors while polling, a run:error is emitted."""
     run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
     store.update_status(run.id, RunStatus.RUNNING)
 
-    with patch("api.services.run_service.TradingAgentsGraph") as MockGraph:
-        events = list(service.stream_events(run.id))
+    original_get = store.get
+    call_count = {"n": 0}
 
-    assert MockGraph.call_count == 0  # no agent execution
-    assert len(events) == 1
-    assert events[0]["event"] == "run:error"
-    assert "already in progress" in events[0]["data"]["message"]
+    def get_with_error(run_id):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            store.set_error(run_id, "LLM timed out")
+        return original_get(run_id)
+
+    with patch.object(store, "get", side_effect=get_with_error):
+        with patch("api.services.run_service.time"):
+            with patch("api.services.run_service.TradingAgentsGraph"):
+                events = list(service.stream_events(run.id))
+
+    error_events = [e for e in events if e["event"] == "run:error"]
+    assert len(error_events) == 1
+    assert "LLM timed out" in error_events[0]["data"]["message"]
 
 
 def test_error_run_retries_and_clears_reports(service, store):

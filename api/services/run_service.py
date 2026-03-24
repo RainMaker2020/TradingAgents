@@ -1,4 +1,5 @@
 import logging
+import time
 from collections import defaultdict
 from typing import Generator
 from api.store.runs_store import RunsStore
@@ -51,8 +52,32 @@ class RunService:
             return
 
         if run.status == RunStatus.RUNNING:
-            yield {"event": "run:error", "data": {"message": "Run is already in progress"}}
-            return
+            seen_keys: set[str] = set()
+            while True:
+                snapshot = self._store.get(run_id)
+                token_usage = {k: v.model_dump() for k, v in (snapshot.token_usage or {}).items()}
+                for key, report in snapshot.reports.items():
+                    if key in seen_keys or ":" not in key:
+                        continue
+                    step_key, turn_str = key.rsplit(":", 1)
+                    if not turn_str.isdigit():
+                        continue
+                    seen_keys.add(key)
+                    turn = int(turn_str)
+                    raw = token_usage.get(key, {"tokens_in": 0, "tokens_out": 0})
+                    yield {"event": "agent:start",    "data": {"step": step_key, "turn": turn}}
+                    yield {"event": "agent:complete", "data": {
+                        "step": step_key, "turn": turn, "report": report,
+                        "tokens_in": raw.get("tokens_in", 0),
+                        "tokens_out": raw.get("tokens_out", 0),
+                    }}
+                if snapshot.status == RunStatus.COMPLETE:
+                    yield {"event": "run:complete", "data": {"decision": snapshot.decision or "HOLD", "run_id": run_id}}
+                    return
+                if snapshot.status == RunStatus.ERROR:
+                    yield {"event": "run:error", "data": {"message": snapshot.error or "Unknown error"}}
+                    return
+                time.sleep(0.5)
 
         self._store.clear_reports(run_id)
         self._store.clear_token_usage(run_id)
