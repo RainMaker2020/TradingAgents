@@ -1,16 +1,16 @@
 'use client'
-import { use, useEffect, useMemo, useState } from 'react'
+import { use, useMemo, useState } from 'react'
 import { useRunStream } from '@/features/run-detail/hooks/useRunStream'
 import PipelineStepper from '@/features/run-detail/components/PipelineStepper'
 import VerdictBanner from '@/features/run-detail/components/VerdictBanner'
 import PhaseTabs from '@/features/run-detail/components/PhaseTabs'
-import { getRun } from '@/lib/api-client'
-import type { RunSummary } from '@/lib/types/run'
 import TokenStatsBar from '@/features/run-detail/components/TokenStatsBar'
 import ChiefAnalystCard from '@/features/run-detail/components/ChiefAnalystCard'
 import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
+import { AGENT_STEP_LABELS } from '@/lib/types/run'
+import type { AgentStep } from '@/lib/types/run'
 
 const STATUS_CONFIG: Record<string, {
   bg: string; color: string; dot: string; label: string; pulse: boolean
@@ -23,13 +23,8 @@ const STATUS_CONFIG: Record<string, {
 
 export default function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { steps, reports, verdict, status, error, tokensTotal, tokensByStep, chiefAnalystReport } = useRunStream(id)
-  const [run, setRun] = useState<RunSummary | null>(null)
+  const { steps, reports, verdict, status, error, tokensTotal, tokensByStep, chiefAnalystReport, ticker, date } = useRunStream(id)
   const [viewMode, setViewMode] = useState<'overview' | 'diagnostics'>('overview')
-
-  useEffect(() => {
-    getRun(id).then(setRun).catch(() => {})
-  }, [id])
 
   const sc = STATUS_CONFIG[status] ?? STATUS_CONFIG.connecting
   const stepEntries = Object.entries(steps)
@@ -43,8 +38,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
       return bTotal - aTotal
     })[0]
 
-    if (!leader) return 'N/A'
-    return `${leader[0].replace(/_/g, ' ')}`
+    if (!leader || leader[1].in + leader[1].out === 0) return 'N/A'
+    return AGENT_STEP_LABELS[leader[0] as AgentStep] ?? leader[0].replace(/_/g, ' ')
   }, [tokensByStep])
 
   return (
@@ -55,11 +50,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             Live Execution
           </div>
           <h1 className="ws-page-title">
-            {run ? (
+            {ticker ? (
               <>
-                <span className="terminal-text" style={{ color: 'var(--accent-light)' }}>{run.ticker}</span>
+                <span className="terminal-text" style={{ color: 'var(--accent-light)' }}>{ticker}</span>
                 <span style={{ margin: '0 10px', color: 'var(--text-low)' }}>·</span>
-                <span className="terminal-text text-[22px]" style={{ color: 'var(--text-mid)' }}>{run.date}</span>
+                <span className="terminal-text text-[22px]" style={{ color: 'var(--text-mid)' }}>{date}</span>
               </>
             ) : (
               'Loading run'
@@ -99,16 +94,19 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
 
       <Toolbar
         left={
-          <>
-            <ToolbarField label="View">
-              <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setViewMode('overview')}>
-                Overview
+          <ToolbarField label="View">
+            {(['overview', 'diagnostics'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className="btn-secondary !h-[34px] !px-3 !py-0 text-xs"
+                style={viewMode === mode ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+                onClick={() => setViewMode(mode)}
+              >
+                {mode === 'overview' ? 'Overview' : 'Diagnostics'}
               </button>
-            </ToolbarField>
-            <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setViewMode('diagnostics')}>
-              Diagnostics
-            </button>
-          </>
+            ))}
+          </ToolbarField>
         }
         right={
           <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)', letterSpacing: '0.08em' }}>
@@ -120,14 +118,14 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
       <div className="ws-grid-2">
         <div className="space-y-4 min-w-0">
           {/* Token stats bar */}
-          <TokenStatsBar tokensTotal={tokensTotal} status={status} />
+          <TokenStatsBar tokensTotal={tokensTotal} />
 
           {/* Chief Analyst Executive Summary */}
           <ChiefAnalystCard
             report={chiefAnalystReport}
             status={steps['chief_analyst']}
-            ticker={run?.ticker ?? ''}
-            date={run?.date ?? ''}
+            ticker={ticker ?? ''}
+            date={date ?? ''}
           />
 
           {/* Pipeline */}
@@ -148,8 +146,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
           )}
 
           {/* Verdict */}
-          {verdict && run && (
-            <VerdictBanner verdict={verdict} ticker={run.ticker} date={run.date} />
+          {verdict && ticker && date && (
+            <VerdictBanner verdict={verdict} ticker={ticker} date={date} />
           )}
 
           {/* Phase tabs + reports */}

@@ -63,13 +63,20 @@ class RunService:
         except Exception as e:
             self._store.set_error(run_id, str(e))
 
+    _MAX_POLL_SECONDS = 3600  # 1 hour wall-clock cap; prevents infinite hang on thread crash
+
     def _poll_events(self, run_id: str) -> Generator[dict, None, None]:
         """Poll SQLite and stream events until the run reaches a terminal state.
 
         Safe to close at any time — the pipeline thread is unaffected.
+        Times out after _MAX_POLL_SECONDS if the run never reaches a terminal state.
         """
         seen_keys: set[str] = set()
+        deadline = time.monotonic() + self._MAX_POLL_SECONDS
         while True:
+            if time.monotonic() >= deadline:
+                yield {"event": "run:error", "data": {"message": "Run timed out waiting for pipeline"}}
+                return
             snapshot = self._store.get(run_id)
             token_usage = {k: v.model_dump() for k, v in (snapshot.token_usage or {}).items()}
             for key, report in snapshot.reports.items():

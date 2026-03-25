@@ -1,3 +1,4 @@
+'use client'
 type Props = { content: string }
 
 export default function TraderPanel({ content }: Props) {

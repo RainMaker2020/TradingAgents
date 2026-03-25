@@ -1,3 +1,4 @@
+'use client'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import type { RunSummary } from '@/lib/types/run'

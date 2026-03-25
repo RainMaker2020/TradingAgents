@@ -12,4 +12,6 @@ export type RunStreamState = {
   tokensByStep: Record<AgentStep, TokenCount>
   tokensTotal: TokenCount
   chiefAnalystReport: ChiefAnalystReport | null
+  ticker: string | null
+  date: string | null
 }

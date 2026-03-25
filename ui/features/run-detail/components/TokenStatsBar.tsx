@@ -1,3 +1,4 @@
+'use client'
 import type { TokenCount } from '../types'
 
 function formatTokens(n: number): string {
@@ -6,7 +7,6 @@ function formatTokens(n: number): string {
 
 type Props = {
   tokensTotal: TokenCount
-  status: string
 }
 
 export default function TokenStatsBar({ tokensTotal }: Props) {

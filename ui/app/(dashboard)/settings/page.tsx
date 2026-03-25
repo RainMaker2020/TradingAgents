@@ -1,8 +1,14 @@
+'use client'
+
 import SettingsForm from '@/features/settings/components/SettingsForm'
 import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
+import { useWorkspaceRuntime } from '@/features/dashboard/hooks/useWorkspaceRuntime'
+import { isAvailable } from '@/lib/truth-state'
 
 export default function SettingsPage() {
+  const runtime = useWorkspaceRuntime()
+
   return (
     <>
       <div className="ws-page-header">
@@ -17,10 +23,26 @@ export default function SettingsPage() {
 
       <MetricStrip
         items={[
-          { label: 'Profiles', value: 'Default', tone: 'accent' },
-          { label: 'Debate Cap', value: '5', tone: 'warning' },
-          { label: 'Risk Cap', value: '5', tone: 'warning' },
-          { label: 'Secrets Mode', value: '.env', tone: 'neutral' },
+          {
+            label: 'LLM Provider',
+            value: isAvailable(runtime.settings) ? runtime.settings.value.llm_provider : 'Unknown',
+            tone: 'accent',
+          },
+          {
+            label: 'Default Debate',
+            value: isAvailable(runtime.settings) ? String(runtime.settings.value.max_debate_rounds) : 'N/A',
+            tone: 'warning',
+          },
+          {
+            label: 'Default Risk',
+            value: isAvailable(runtime.settings) ? String(runtime.settings.value.max_risk_discuss_rounds) : 'N/A',
+            tone: 'warning',
+          },
+          {
+            label: 'Round Cap',
+            value: isAvailable(runtime.constraints) ? String(runtime.constraints.value.max_rounds) : 'N/A',
+            tone: 'neutral',
+          },
         ]}
       />
 

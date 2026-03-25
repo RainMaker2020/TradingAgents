@@ -1,3 +1,5 @@
+import { DEFAULT_ENABLED_ANALYSTS, DEFAULT_WORKSPACE_SETTINGS } from '@/lib/defaults'
+
 export type NewRunFormState = {
   ticker: string
   date: string
@@ -12,10 +14,10 @@ export type NewRunFormState = {
 export const DEFAULT_FORM: NewRunFormState = {
   ticker: '',
   date: '',
-  llm_provider: 'openai',
-  deep_think_llm: 'gpt-5.2',
-  quick_think_llm: 'gpt-5-mini',
-  max_debate_rounds: 1,
-  max_risk_discuss_rounds: 1,
-  enabled_analysts: ['market', 'news', 'fundamentals', 'social'],
+  llm_provider: DEFAULT_WORKSPACE_SETTINGS.llm_provider,
+  deep_think_llm: DEFAULT_WORKSPACE_SETTINGS.deep_think_llm,
+  quick_think_llm: DEFAULT_WORKSPACE_SETTINGS.quick_think_llm,
+  max_debate_rounds: DEFAULT_WORKSPACE_SETTINGS.max_debate_rounds,
+  max_risk_discuss_rounds: DEFAULT_WORKSPACE_SETTINGS.max_risk_discuss_rounds,
+  enabled_analysts: [...DEFAULT_ENABLED_ANALYSTS],
 }

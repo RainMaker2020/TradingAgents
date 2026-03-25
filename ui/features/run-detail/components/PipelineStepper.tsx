@@ -1,3 +1,4 @@
+'use client'
 import { AGENT_STEPS, STEP_PHASE } from '@/lib/types/run'
 import type { AgentStep } from '@/lib/types/run'
 import type { StepStatus } from '@/lib/types/agents'

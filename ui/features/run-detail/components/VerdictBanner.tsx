@@ -1,3 +1,4 @@
+'use client'
 import type { Decision } from '@/lib/types/agents'
 
 type Props = { verdict: Decision | null; ticker: string; date: string }

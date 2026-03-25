@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 from api.models.settings import Settings
 
-SETTINGS_PATH = Path(os.getenv("SETTINGS_PATH", "api/settings.json"))
+_DEFAULT_SETTINGS_PATH = Path(__file__).parent.parent / "settings.json"
+SETTINGS_PATH = Path(os.getenv("SETTINGS_PATH", str(_DEFAULT_SETTINGS_PATH)))
 
 
 def load_settings() -> Settings:

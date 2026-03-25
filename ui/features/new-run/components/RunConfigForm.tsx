@@ -7,6 +7,7 @@ import type { NewRunFormState } from '../types'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 import SegmentedControl from '@/components/dashboard/SegmentedControl'
+import { RUN_LIMITS } from '@/lib/defaults'
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -21,11 +22,13 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 export default function RunConfigForm() {
   const [form, setForm] = useState<NewRunFormState>(DEFAULT_FORM)
+  const [activePreset, setActivePreset] = useState<'fast' | 'balanced' | 'deep' | null>(null)
   const { submit, loading, error } = useRunSubmit()
   const set = (k: keyof NewRunFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }))
 
   const setPreset = (preset: 'balanced' | 'deep' | 'fast') => {
+    setActivePreset(preset)
     if (preset === 'deep') {
       setForm((f) => ({ ...f, max_debate_rounds: 3, max_risk_discuss_rounds: 3 }))
       return
@@ -37,6 +40,9 @@ export default function RunConfigForm() {
     setForm((f) => ({ ...f, max_debate_rounds: 2, max_risk_discuss_rounds: 2 }))
   }
 
+  const noAnalysts = form.enabled_analysts.length === 0
+  const today = new Date().toISOString().slice(0, 10)
+
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); submit(form) }}
@@ -44,19 +50,19 @@ export default function RunConfigForm() {
     >
       <Toolbar
         left={
-          <>
-            <ToolbarField label="Profile">
-              <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setPreset('fast')}>
-                Fast
+          <ToolbarField label="Profile">
+            {(['fast', 'balanced', 'deep'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="btn-secondary !h-[34px] !px-3 !py-0 text-xs"
+                style={activePreset === p ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
+                onClick={() => setPreset(p)}
+              >
+                {p === 'fast' ? 'Fast' : p === 'balanced' ? 'Balanced' : 'Deep Research'}
               </button>
-            </ToolbarField>
-            <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setPreset('balanced')}>
-              Balanced
-            </button>
-            <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setPreset('deep')}>
-              Deep Research
-            </button>
-          </>
+            ))}
+          </ToolbarField>
         }
         right={
           <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>
@@ -97,6 +103,8 @@ export default function RunConfigForm() {
               value={form.ticker}
               onChange={(e) => set('ticker', e.target.value.toUpperCase())}
               required
+              pattern="[A-Z]{1,10}"
+              title="1–10 uppercase letters"
               style={{ letterSpacing: '0.12em' }}
             />
           </div>
@@ -109,6 +117,8 @@ export default function RunConfigForm() {
               value={form.date}
               onChange={(e) => set('date', e.target.value)}
               required
+              min="2020-01-01"
+              max={today}
             />
           </div>
         </div>
@@ -154,8 +164,8 @@ export default function RunConfigForm() {
               <FieldLabel>Debate Rounds</FieldLabel>
               <input
                 type="number"
-                min={1}
-                max={5}
+                min={RUN_LIMITS.minRounds}
+                max={RUN_LIMITS.maxRounds}
                 className="vault-input terminal-text"
                 value={form.max_debate_rounds}
                 onChange={(e) => set('max_debate_rounds', Number(e.target.value))}
@@ -165,8 +175,8 @@ export default function RunConfigForm() {
               <FieldLabel>Risk Discussion Rounds</FieldLabel>
               <input
                 type="number"
-                min={1}
-                max={5}
+                min={RUN_LIMITS.minRounds}
+                max={RUN_LIMITS.maxRounds}
                 className="vault-input terminal-text"
                 value={form.max_risk_discuss_rounds}
                 onChange={(e) => set('max_risk_discuss_rounds', Number(e.target.value))}
@@ -196,14 +206,19 @@ export default function RunConfigForm() {
             <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.2"/>
             <path d="M5 3v2.5l1.5 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
           </svg>
-          2–5 min · varies by model
+          Duration varies by symbol, model, and debate depth
         </div>
 
+        {noAnalysts && (
+          <span className="text-xs" style={{ color: 'var(--error)', fontFamily: 'var(--font-mono)' }}>
+            Select at least one analyst
+          </span>
+        )}
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || noAnalysts}
           className="btn-primary"
-          style={{ minWidth: '160px', justifyContent: 'center' }}
+          style={{ minWidth: '160px', justifyContent: 'center', opacity: noAnalysts ? 0.45 : 1 }}
         >
           {loading ? (
             <>

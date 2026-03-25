@@ -1,7 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
+import { useWorkspaceRuntime } from '@/features/dashboard/hooks/useWorkspaceRuntime'
+import { isAvailable, withCriticalFallback } from '@/lib/truth-state'
 
 const PAGE_LABELS: Record<string, string> = {
   '/new-run': 'Strategy Launch',
@@ -18,6 +20,14 @@ function currentTimeLabel() {
 
 export default function GlobalTopBar() {
   const pathname = usePathname()
+  const runtime = useWorkspaceRuntime()
+  const [clockLabel, setClockLabel] = useState(currentTimeLabel)
+
+  useEffect(() => {
+    const id = setInterval(() => setClockLabel(currentTimeLabel()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   const pageLabel = useMemo(() => {
     if (pathname.startsWith('/runs/')) return 'Live Run Detail'
     return PAGE_LABELS[pathname] ?? 'Trading Workspace'
@@ -35,15 +45,25 @@ export default function GlobalTopBar() {
       </div>
 
       <div className="ws-topbar-right">
-        <div className="ws-topbar-pill">
-          <span className="ws-dot ws-dot-buy" />
-          API Connected
-        </div>
-        <div className="ws-topbar-pill">
-          <span className="ws-dot ws-dot-accent" />
-          SSE Ready
-        </div>
-        <div className="ws-topbar-clock terminal-text">{currentTimeLabel()}</div>
+        {isAvailable(withCriticalFallback(runtime.apiReachable)) && (
+          <div className="ws-topbar-pill">
+            <span className={`ws-dot ${runtime.apiReachable.value ? 'ws-dot-buy' : 'ws-dot-sell'}`} />
+            {runtime.apiReachable.value ? 'API Available' : 'API Down'}
+          </div>
+        )}
+        {isAvailable(withCriticalFallback(runtime.sseReady)) && (
+          <div className="ws-topbar-pill">
+            <span className={`ws-dot ${runtime.sseReady.value ? 'ws-dot-accent' : 'ws-dot-sell'}`} />
+            {runtime.sseReady.value ? 'SSE Ready' : 'SSE Down'}
+          </div>
+        )}
+        {isAvailable(runtime.apiTarget) && (
+          <div className="ws-topbar-pill">
+            <span className="ws-dot ws-dot-accent" />
+            {runtime.apiTarget.value}
+          </div>
+        )}
+        <div className="ws-topbar-clock terminal-text">{clockLabel}</div>
       </div>
     </header>
   )

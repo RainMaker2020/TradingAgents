@@ -19,7 +19,8 @@ class RunConfig(BaseModel):
     max_debate_rounds: int = Field(default=1, ge=1, le=5)
     max_risk_discuss_rounds: int = Field(default=1, ge=1, le=5)
     enabled_analysts: list[str] = Field(
-        default=["market", "news", "fundamentals", "social"]
+        default=["market", "news", "fundamentals", "social"],
+        min_length=1,
     )
 
 

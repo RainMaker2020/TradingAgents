@@ -1,3 +1,4 @@
+'use client'
 import { AGENT_STEPS, AGENT_STEP_LABELS, STEP_PHASE } from '@/lib/types/run'
 import type { AgentStep } from '@/lib/types/run'
 import type { StepStatus } from '@/lib/types/agents'
@@ -6,7 +7,7 @@ function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
-type Phase = 'analysts' | 'researchers' | 'trader' | 'risk'
+type Phase = 'analysts' | 'researchers' | 'trader' | 'risk' | 'summary'
 
 const MULTI_TURN_STEPS = new Set<AgentStep>([
   'bull_researcher', 'bear_researcher',

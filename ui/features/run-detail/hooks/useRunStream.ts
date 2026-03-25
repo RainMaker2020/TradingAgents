@@ -18,6 +18,8 @@ const initialState: RunStreamState = {
   verdict: null,
   error: null,
   chiefAnalystReport: null,
+  ticker: null,
+  date: null,
 }
 
 type Action =
@@ -26,6 +28,7 @@ type Action =
   | { type: 'RUN_COMPLETE';   decision: string }
   | { type: 'RUN_ERROR';      message: string }
   | { type: 'CONNECTED' }
+  | { type: 'HYDRATE_META';   ticker: string; date: string }
 
 function reducer(state: RunStreamState, action: Action): RunStreamState {
   switch (action.type) {
@@ -72,6 +75,9 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
     case 'RUN_ERROR':
       return { ...state, status: 'error', error: action.message }
 
+    case 'HYDRATE_META':
+      return { ...state, ticker: action.ticker, date: action.date }
+
     default:
       return state
   }
@@ -87,7 +93,9 @@ export function useRunStream(runId: string): RunStreamState {
     getRun(runId).then((run) => {
       if (aborted) return
 
-      if (run.status === 'complete' && run.reports) {
+      dispatch({ type: 'HYDRATE_META', ticker: run.ticker, date: run.date })
+
+      if (run.status === 'complete' && Object.keys(run.reports).length > 0) {
         dispatch({ type: 'CONNECTED' })
         for (const [key, report] of Object.entries(run.reports)) {
           const lastColon = key.lastIndexOf(':')

@@ -4,18 +4,14 @@ import { getSettings, updateSettings } from '@/lib/api-client'
 import type { SettingsFormState } from '../types'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar from '@/components/dashboard/Toolbar'
+import { DEFAULT_WORKSPACE_SETTINGS, RUN_LIMITS } from '@/lib/defaults'
 
-const DEFAULTS: SettingsFormState = {
-  llm_provider: 'openai',
-  deep_think_llm:         'gpt-5.2',
-  quick_think_llm:        'gpt-5-mini',
-  max_debate_rounds:      1,
-  max_risk_discuss_rounds: 1,
-}
+const DEFAULTS: SettingsFormState = { ...DEFAULT_WORKSPACE_SETTINGS }
 
 export default function SettingsForm() {
   const [form, setForm]   = useState<SettingsFormState>(DEFAULTS)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const set = (k: keyof SettingsFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }))
@@ -29,9 +25,14 @@ export default function SettingsForm() {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
-    await updateSettings(form)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaveError(null)
+    try {
+      await updateSettings(form)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save settings')
+    }
   }
 
   return (
@@ -81,7 +82,7 @@ export default function SettingsForm() {
               {key.replace(/_/g, ' ')}
             </label>
             <input
-              type="number" min={1} max={5}
+              type="number" min={RUN_LIMITS.minRounds} max={RUN_LIMITS.maxRounds}
               className="vault-input"
               value={form[key]}
               onChange={(e) => set(key, Number(e.target.value))}
@@ -94,6 +95,20 @@ export default function SettingsForm() {
       <div className="rounded-lg px-5 py-3.5 text-xs leading-relaxed" style={{ background: 'var(--bg-elevated)', color: 'var(--text-mid)', border: '1px solid var(--border)' }}>
         API keys and secrets are configured via <code style={{ color: 'var(--accent-light)' }} className="font-mono">.env</code> on the server and are not editable here.
       </div>
+
+      {/* ── Save error ──────────────────────────────────────────── */}
+      {saveError && (
+        <div
+          className="px-4 py-3 rounded-xl text-sm"
+          style={{
+            background: 'var(--error-bg)',
+            color: 'var(--error)',
+            border: '1px solid rgba(255,43,62,0.25)',
+          }}
+        >
+          {saveError}
+        </div>
+      )}
 
       {/* ── Actions ─────────────────────────────────────────────── */}
       <div className="flex gap-3 justify-end pt-1">

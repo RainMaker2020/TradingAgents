@@ -1,6 +1,8 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useWorkspaceRuntime } from '@/features/dashboard/hooks/useWorkspaceRuntime'
+import { isAvailable, withCriticalFallback } from '@/lib/truth-state'
 
 const NAV = [
   {
@@ -40,6 +42,8 @@ const NAV = [
 
 export default function Sidebar() {
   const path = usePathname()
+  const runtime = useWorkspaceRuntime()
+  const apiState = withCriticalFallback(runtime.apiReachable)
 
   return (
     <aside
@@ -118,13 +122,19 @@ export default function Sidebar() {
         <div className="apex-label mb-2">Session</div>
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg px-2.5 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-raised)' }}>
-            <div className="text-[9px] terminal-text" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>RUNS</div>
-            <div className="text-sm terminal-text font-bold" style={{ color: 'var(--text-high)' }}>LIVE</div>
+            <div className="text-[9px] terminal-text" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>RUNNING</div>
+            <div className="text-sm terminal-text font-bold" style={{ color: 'var(--text-high)' }}>
+              {isAvailable(runtime.runTotals) ? runtime.runTotals.value.running : 'N/A'}
+            </div>
           </div>
-          <div className="rounded-lg px-2.5 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-raised)' }}>
-            <div className="text-[9px] terminal-text" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>STATE</div>
-            <div className="text-sm terminal-text font-bold" style={{ color: 'var(--buy)' }}>READY</div>
-          </div>
+          {isAvailable(apiState) && (
+            <div className="rounded-lg px-2.5 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-raised)' }}>
+              <div className="text-[9px] terminal-text" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>API</div>
+              <div className="text-sm terminal-text font-bold" style={{ color: apiState.value ? 'var(--buy)' : 'var(--sell)' }}>
+                {apiState.value ? 'AVAILABLE' : 'DOWN'}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -243,9 +253,9 @@ export default function Sidebar() {
             >
               <span
                 className="w-1 h-1 rounded-full inline-block"
-                style={{ background: 'var(--buy)', animation: 'shimmer 3s ease-in-out infinite' }}
+                style={{ background: isAvailable(apiState) ? (apiState.value ? 'var(--buy)' : 'var(--sell)') : 'var(--hold)', animation: 'shimmer 3s ease-in-out infinite' }}
               />
-              DEV · PORT 8000
+              {isAvailable(runtime.apiTarget) ? runtime.apiTarget.value.toUpperCase() : 'UNKNOWN TARGET'}
             </div>
           </div>
         </div>

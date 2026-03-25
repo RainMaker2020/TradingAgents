@@ -5,13 +5,14 @@ import type { AgentStep } from '@/lib/types/run'
 import type { StepStatus } from '@/lib/types/agents'
 import AnalystReports from './AnalystReports'
 
-type Phase = 'analysts' | 'researchers' | 'trader' | 'risk'
+type Phase = 'analysts' | 'researchers' | 'trader' | 'risk' | 'summary'
 
 const TABS: { label: string; phase: Phase }[] = [
   { label: 'Analysts', phase: 'analysts' },
   { label: 'Researchers', phase: 'researchers' },
   { label: 'Trader', phase: 'trader' },
   { label: 'Risk', phase: 'risk' },
+  { label: 'Chief Analyst', phase: 'summary' },
 ]
 
 type Props = {
@@ -39,7 +40,7 @@ export default function PhaseTabs({ steps, reports, tokensByStep }: Props) {
     return TABS.reduce<Record<Phase, number>>((acc, tab) => {
       acc[tab.phase] = AGENT_STEPS.filter((s) => STEP_PHASE[s] === tab.phase).length
       return acc
-    }, { analysts: 0, researchers: 0, trader: 0, risk: 0 })
+    }, { analysts: 0, researchers: 0, trader: 0, risk: 0, summary: 0 })
   }, [])
 
   return (

@@ -1,8 +1,18 @@
+'use client'
+
 import RunConfigForm from '@/features/new-run/components/RunConfigForm'
 import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
+import { useWorkspaceRuntime } from '@/features/dashboard/hooks/useWorkspaceRuntime'
+import { AGENT_STEPS, STEP_PHASE } from '@/lib/types/run'
+import { DEFAULT_FORM } from '@/features/new-run/types'
+import { isAvailable } from '@/lib/truth-state'
 
 export default function NewRunPage() {
+  const runtime = useWorkspaceRuntime()
+  const phaseCount = new Set(AGENT_STEPS.map((step) => STEP_PHASE[step])).size
+  const analystsEnabled = DEFAULT_FORM.enabled_analysts.length
+
   return (
     <>
       <div className="ws-page-header">
@@ -19,10 +29,16 @@ export default function NewRunPage() {
 
       <MetricStrip
         items={[
-          { label: 'Pipeline Phases', value: '4', tone: 'accent' },
-          { label: 'Analysts Enabled', value: '4', tone: 'positive' },
-          { label: 'Default Debate', value: '1 Round', tone: 'warning' },
-          { label: 'Run ETA', value: '2-5 Min', tone: 'neutral' },
+          { label: 'Pipeline Phases', value: String(phaseCount), tone: 'accent' },
+          { label: 'Analysts Enabled', value: String(analystsEnabled), tone: 'positive' },
+          {
+            label: 'Default Debate',
+            value: isAvailable(runtime.settings)
+              ? `${runtime.settings.value.max_debate_rounds} Round`
+              : 'N/A',
+            tone: 'warning',
+          },
+          { label: 'Run ETA', value: 'Unknown', tone: 'neutral' },
         ]}
       />
 
