@@ -441,12 +441,14 @@ class TradingAgentsGraph:
             "chief_analyst_report": final_state.get("chief_analyst_report"),
         }
 
-        # Save to file
-        directory = Path(f"eval_results/{self.ticker}/TradingAgentsStrategy_logs/")
+        # Save to file — use results_dir from config so path is consistent
+        # regardless of the process working directory.
+        results_dir = Path(self.config.get("results_dir", "./results")).expanduser().resolve()
+        directory = results_dir / "eval_results" / self.ticker / "TradingAgentsStrategy_logs"
         directory.mkdir(parents=True, exist_ok=True)
 
         with open(
-            f"eval_results/{self.ticker}/TradingAgentsStrategy_logs/full_states_log_{trade_date}.json",
+            directory / f"full_states_log_{trade_date}.json",
             "w",
             encoding="utf-8",
         ) as f:

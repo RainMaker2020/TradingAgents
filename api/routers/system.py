@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version as package_version
 import os
-import pathlib
 
 from fastapi import APIRouter
 
@@ -16,17 +15,9 @@ from api.models.system import (
 )
 from api.services.model_catalog_service import ModelCatalogError, get_provider_models
 from api.services.settings_service import load_settings
-from api.store.runs_store import RunsStore
-
-try:
-    from tradingagents.default_config import DEFAULT_CONFIG
-except ImportError:
-    DEFAULT_CONFIG = {"results_dir": "./results"}
-
+from api.store.shared import store as _store  # shared singleton
 
 router = APIRouter()
-_db_path = pathlib.Path(DEFAULT_CONFIG["results_dir"]) / "runs.sqlite"
-_store = RunsStore(_db_path)
 
 
 def _resolve_api_version() -> str:
