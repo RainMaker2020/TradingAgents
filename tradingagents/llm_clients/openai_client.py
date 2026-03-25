@@ -28,6 +28,9 @@ class NormalizedChatOpenAI(ChatOpenAI):
     def invoke(self, input, config=None, **kwargs):
         return self._normalize_content(super().invoke(input, config, **kwargs))
 
+    async def ainvoke(self, input, config=None, **kwargs):
+        return self._normalize_content(await super().ainvoke(input, config, **kwargs))
+
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "reasoning_effort",
@@ -41,6 +44,21 @@ _PROVIDER_CONFIG = {
     "ollama": ("http://localhost:11434/v1", None),
     "deepseek": ("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
 }
+
+
+class OpenAICompatibleChat(NormalizedChatOpenAI):
+    """ChatOpenAI for providers that are OpenAI-compatible but lack json_schema support.
+
+    Providers like DeepSeek, xAI, OpenRouter, and Ollama support function calling
+    and json_object but NOT response_format=json_schema (OpenAI's structured outputs).
+    This wrapper defaults with_structured_output to function_calling instead of
+    LangChain's default of json_schema.
+    """
+
+    def with_structured_output(self, schema, *, method=None, include_raw=False, strict=None, tools=None, **kwargs):
+        if method is None:
+            method = "function_calling"
+        return super().with_structured_output(schema, method=method, include_raw=include_raw, strict=strict, tools=tools, **kwargs)
 
 
 class OpenAIClient(BaseLLMClient):
@@ -88,8 +106,11 @@ class OpenAIClient(BaseLLMClient):
         # all model families. Third-party providers use Chat Completions.
         if self.provider == "openai":
             llm_kwargs["use_responses_api"] = True
+            return NormalizedChatOpenAI(**llm_kwargs)
 
-        return NormalizedChatOpenAI(**llm_kwargs)
+        # Non-native providers (DeepSeek, xAI, OpenRouter, Ollama): use the
+        # compatible wrapper that defaults structured output to function_calling.
+        return OpenAICompatibleChat(**llm_kwargs)
 
     def validate_model(self) -> bool:
         """Validate model for the provider."""

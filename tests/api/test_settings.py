@@ -7,7 +7,7 @@ async def test_get_settings_returns_defaults():
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        response = await client.get("/settings")
+        response = await client.get("/api/settings")
     assert response.status_code == 200
     data = response.json()
     assert "deep_think_llm" in data
@@ -18,7 +18,7 @@ async def test_put_settings_updates_values():
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        response = await client.put("/settings", json={
+        response = await client.put("/api/settings", json={
             "deep_think_llm": "claude-opus-4-6",
             "quick_think_llm": "claude-haiku-4-5-20251001",
             "llm_provider": "anthropic",

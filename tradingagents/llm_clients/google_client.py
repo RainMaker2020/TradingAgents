@@ -27,6 +27,9 @@ class NormalizedChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
     def invoke(self, input, config=None, **kwargs):
         return self._normalize_content(super().invoke(input, config, **kwargs))
 
+    async def ainvoke(self, input, config=None, **kwargs):
+        return self._normalize_content(await super().ainvoke(input, config, **kwargs))
+
 
 class GoogleClient(BaseLLMClient):
     """Client for Google Gemini models."""
