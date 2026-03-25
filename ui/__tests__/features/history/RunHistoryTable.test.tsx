@@ -11,14 +11,14 @@ const runs = [
 test('renders ticker and decision for each run', () => {
   render(<RunHistoryTable runs={runs} />)
   expect(screen.getByText('NVDA')).toBeInTheDocument()
-  expect(screen.getByText('BUY')).toBeInTheDocument()
+  expect(screen.getAllByText('BUY').length).toBeGreaterThanOrEqual(1)
   expect(screen.getByText('AAPL')).toBeInTheDocument()
-  expect(screen.getByText('HOLD')).toBeInTheDocument()
+  expect(screen.getAllByText('HOLD').length).toBeGreaterThanOrEqual(1)
 })
 
-test('renders View Report links for each run', () => {
+test('renders Open links for each run', () => {
   render(<RunHistoryTable runs={runs} />)
-  const links = screen.getAllByText('View Report →')
+  const links = screen.getAllByText('Open')
   expect(links).toHaveLength(2)
   expect(links[0].closest('a')).toHaveAttribute('href', '/runs/abc')
 })

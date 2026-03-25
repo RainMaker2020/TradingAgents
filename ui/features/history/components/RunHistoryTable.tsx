@@ -1,10 +1,12 @@
 'use client'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { RunSummary } from '@/lib/types/run'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
+import { abortRun as apiAbortRun } from '@/lib/api-client'
+import AbortConfirmModal from '@/features/run-detail/components/AbortConfirmModal'
 
-type Props = { runs: RunSummary[] }
+type Props = { runs: RunSummary[]; onAbortSuccess?: () => void }
 
 function DecisionBadge({ decision }: { decision: string }) {
   const lower = decision.toLowerCase()
@@ -38,11 +40,28 @@ function StatusDot({ decision }: { decision?: string }) {
   )
 }
 
-export default function RunHistoryTable({ runs }: Props) {
+export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
   const [query, setQuery] = useState('')
   const [decisionFilter, setDecisionFilter] = useState<'all' | 'BUY' | 'SELL' | 'HOLD'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | RunSummary['status']>('all')
   const [sortBy, setSortBy] = useState<'created_desc' | 'created_asc' | 'ticker_asc'>('created_desc')
+  const [abortTarget, setAbortTarget] = useState<RunSummary | null>(null)
+  const [abortingIds, setAbortingIds] = useState<Set<string>>(new Set())
+
+  async function handleAbortConfirm() {
+    if (!abortTarget) return
+    const id = abortTarget.id
+    setAbortTarget(null)
+    setAbortingIds((prev) => new Set(prev).add(id))
+    try {
+      await apiAbortRun(id)
+      onAbortSuccess?.()
+    } catch {
+      // button re-enables via finally
+    } finally {
+      setAbortingIds((prev) => { const next = new Set(prev); next.delete(id); return next })
+    }
+  }
 
   const filteredRuns = useMemo(() => {
     const searched = runs.filter((run) => {
@@ -128,6 +147,7 @@ export default function RunHistoryTable({ runs }: Props) {
                 <option value="running">Running</option>
                 <option value="complete">Complete</option>
                 <option value="error">Error</option>
+                <option value="aborted">Aborted</option>
               </select>
             </ToolbarField>
           </>
@@ -168,7 +188,13 @@ export default function RunHistoryTable({ runs }: Props) {
                 </td>
                 <td className="terminal-text">{run.date}</td>
                 <td>
-                  <span className="terminal-text text-[11px]" style={{ color: run.status === 'error' ? 'var(--sell)' : run.status === 'running' ? 'var(--hold)' : run.status === 'complete' ? 'var(--buy)' : 'var(--text-low)' }}>
+                  <span className="terminal-text text-[11px]" style={{
+                    color: run.status === 'error' ? 'var(--sell)'
+                         : run.status === 'running' ? 'var(--hold)'
+                         : run.status === 'complete' ? 'var(--buy)'
+                         : run.status === 'aborted' ? 'var(--text-low)'
+                         : 'var(--text-low)'
+                  }}>
                     {run.status.toUpperCase()}
                   </span>
                 </td>
@@ -183,9 +209,30 @@ export default function RunHistoryTable({ runs }: Props) {
                 </td>
                 <td className="terminal-text text-xs">{new Date(run.created_at).toLocaleString()}</td>
                 <td>
-                  <Link href={`/runs/${run.id}`} className="ws-table-action">
-                    Open
-                  </Link>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Link href={`/runs/${run.id}`} className="ws-table-action">
+                      Open
+                    </Link>
+                    {(run.status === 'queued' || run.status === 'running') && (
+                      <button
+                        onClick={() => setAbortTarget(run)}
+                        disabled={abortingIds.has(run.id)}
+                        style={{
+                          background: 'transparent',
+                          color: 'var(--error)',
+                          border: '1px solid var(--error)',
+                          borderRadius: '4px',
+                          padding: '2px 8px',
+                          fontSize: '11px',
+                          cursor: abortingIds.has(run.id) ? 'not-allowed' : 'pointer',
+                          opacity: abortingIds.has(run.id) ? 0.5 : 1,
+                          fontFamily: 'var(--font-mono)',
+                        }}
+                      >
+                        {abortingIds.has(run.id) ? '…' : 'Abort'}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -208,6 +255,13 @@ export default function RunHistoryTable({ runs }: Props) {
           DESKTOP MONITOR MODE
         </span>
       </div>
+
+      <AbortConfirmModal
+        open={abortTarget !== null}
+        ticker={abortTarget?.ticker ?? ''}
+        onConfirm={handleAbortConfirm}
+        onCancel={() => setAbortTarget(null)}
+      />
     </div>
   )
 }

@@ -6,7 +6,7 @@ import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
 
 export default function HistoryPage() {
-  const { runs, loading, error } = useRunHistory()
+  const { runs, loading, error, refresh } = useRunHistory()
 
   return (
     <>
@@ -63,7 +63,7 @@ export default function HistoryPage() {
 
       {!loading && !error && (
         <Panel title="Execution Log" subtitle="All runs · sortable and filterable">
-          <RunHistoryTable runs={runs} />
+          <RunHistoryTable runs={runs} onAbortSuccess={refresh} />
         </Panel>
       )}
     </>
