@@ -58,3 +58,36 @@ def test_system_health_reports_down_when_store_fails(monkeypatch):
     runtime = runtime_res.json()
     assert runtime["session"]["total_runs"] == 0
     assert runtime["health"]["api_available"] is False
+
+
+def test_models_deepseek_success(monkeypatch):
+    monkeypatch.setattr(
+        system_router, "get_provider_models",
+        lambda provider: ["deepseek-chat", "deepseek-reasoner"],
+    )
+    client = TestClient(app)
+    response = client.get("/api/system/models/deepseek")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["provider"] == "deepseek"
+    assert data["models"] == ["deepseek-chat", "deepseek-reasoner"]
+    assert data["error"] is None
+
+
+def test_models_deepseek_catalog_error(monkeypatch):
+    from api.services.model_catalog_service import ModelCatalogError
+
+    def _raise(provider):
+        raise ModelCatalogError("Missing API key: set one of DEEPSEEK_API_KEY")
+
+    monkeypatch.setattr(system_router, "get_provider_models", _raise)
+    client = TestClient(app)
+    response = client.get("/api/system/models/deepseek")
+
+    assert response.status_code == 200  # graceful — never 5xx
+    data = response.json()
+    assert data["provider"] == "deepseek"
+    assert data["models"] == []
+    assert data["error"] is not None
+    assert "Missing API key" in data["error"]
