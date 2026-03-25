@@ -41,3 +41,4 @@ include = ["tradingagents*", "cli*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+norecursedirs = ["venv", ".venv", ".worktrees", "node_modules", ".git"]
