@@ -10,16 +10,37 @@ interface AbortConfirmModalProps {
 
 export default function AbortConfirmModal({ open, ticker, onConfirm, onCancel }: AbortConfirmModalProps) {
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const confirmRef = useRef<HTMLButtonElement>(null)
 
   // Focus trap: focus Cancel button when modal opens
   useEffect(() => {
     if (open) cancelRef.current?.focus()
   }, [open])
 
-  // ESC key closes modal
+  // ESC key closes modal; Tab/Shift-Tab trapped within the two buttons
   useEffect(() => {
     if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onCancel(); return }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          // Shift+Tab cycles backwards: if on Cancel, go to Abort; if on Abort, go to Cancel
+          if (document.activeElement === cancelRef.current) {
+            confirmRef.current?.focus()
+          } else {
+            cancelRef.current?.focus()
+          }
+        } else {
+          // Tab cycles forward: if on Abort, go back to Cancel; if on Cancel, go to Abort
+          if (document.activeElement === confirmRef.current) {
+            cancelRef.current?.focus()
+          } else {
+            confirmRef.current?.focus()
+          }
+        }
+      }
+    }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [open, onCancel])
@@ -72,6 +93,7 @@ export default function AbortConfirmModal({ open, ticker, onConfirm, onCancel }:
             Cancel
           </button>
           <button
+            ref={confirmRef}
             onClick={onConfirm}
             style={{
               background: 'var(--error)',
