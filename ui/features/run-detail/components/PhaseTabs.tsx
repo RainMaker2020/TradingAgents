@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { AGENT_STEPS, STEP_PHASE } from '@/lib/types/run'
 import type { AgentStep } from '@/lib/types/run'
 import type { StepStatus } from '@/lib/types/agents'
@@ -7,11 +7,11 @@ import AnalystReports from './AnalystReports'
 
 type Phase = 'analysts' | 'researchers' | 'trader' | 'risk'
 
-const TABS: { label: string; phase: Phase; count: string }[] = [
-  { label: 'Analysts',    phase: 'analysts',    count: '4' },
-  { label: 'Researchers', phase: 'researchers', count: '3' },
-  { label: 'Trader',      phase: 'trader',      count: '1' },
-  { label: 'Risk',        phase: 'risk',        count: '4' },
+const TABS: { label: string; phase: Phase }[] = [
+  { label: 'Analysts', phase: 'analysts' },
+  { label: 'Researchers', phase: 'researchers' },
+  { label: 'Trader', phase: 'trader' },
+  { label: 'Risk', phase: 'risk' },
 ]
 
 type Props = {
@@ -35,6 +35,12 @@ function getPhaseStatus(phase: Phase, steps: Record<AgentStep, StepStatus>): 'do
 
 export default function PhaseTabs({ steps, reports, tokensByStep }: Props) {
   const [active, setActive] = useState<Phase>('analysts')
+  const phaseCounts = useMemo(() => {
+    return TABS.reduce<Record<Phase, number>>((acc, tab) => {
+      acc[tab.phase] = AGENT_STEPS.filter((s) => STEP_PHASE[s] === tab.phase).length
+      return acc
+    }, { analysts: 0, researchers: 0, trader: 0, risk: 0 })
+  }, [])
 
   return (
     <div>
@@ -59,7 +65,7 @@ export default function PhaseTabs({ steps, reports, tokensByStep }: Props) {
           width: 'fit-content',
         }}
       >
-        {TABS.map(({ label, phase, count }) => {
+        {TABS.map(({ label, phase }) => {
           const isActive  = active === phase
           const status    = getPhaseStatus(phase, steps)
           const isDone    = status === 'done'
@@ -111,7 +117,7 @@ export default function PhaseTabs({ steps, reports, tokensByStep }: Props) {
                   letterSpacing: '0.05em',
                 }}
               >
-                {count}
+                {phaseCounts[phase]}
               </span>
             </button>
           )

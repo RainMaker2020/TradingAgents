@@ -43,7 +43,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="w-[240px] min-h-screen flex flex-col shrink-0 relative"
+      className="w-[252px] min-h-screen flex flex-col shrink-0 relative"
       style={{
         background: 'var(--bg-sidebar)',
         borderRight: '1px solid var(--border)',
@@ -58,17 +58,10 @@ export default function Sidebar() {
         }}
       />
 
-      {/* Top glow */}
-      <div
-        className="absolute top-0 left-0 right-0 h-px pointer-events-none"
-        style={{
-          background: 'linear-gradient(90deg, transparent 10%, var(--accent) 50%, transparent 90%)',
-          opacity: 0.3,
-        }}
-      />
+      <div className="absolute top-0 left-0 right-0 h-px pointer-events-none" style={{ background: 'var(--border-active)' }} />
 
       {/* Logo */}
-      <div className="relative px-5 pt-6 pb-5" style={{ borderBottom: '1px solid var(--border)' }}>
+      <div className="relative px-4 pt-4 pb-4" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center gap-3">
           {/* Logo mark */}
           <div
@@ -110,23 +103,34 @@ export default function Sidebar() {
             >
               TradingAgents
             </div>
-            <div
-              className="mt-1 flex items-center gap-1.5"
-              style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.12em' }}
-            >
+            <div className="mt-1 flex items-center gap-1.5" style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.12em' }}>
               <span
                 className="w-1.5 h-1.5 rounded-full inline-block"
                 style={{ background: 'var(--buy)', boxShadow: '0 0 5px var(--buy)', animation: 'shimmer 2s ease-in-out infinite' }}
               />
-              MULTI-AGENT AI
+              OPERATOR CONSOLE
             </div>
           </div>
         </div>
       </div>
 
+      <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="apex-label mb-2">Session</div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg px-2.5 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-raised)' }}>
+            <div className="text-[9px] terminal-text" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>RUNS</div>
+            <div className="text-sm terminal-text font-bold" style={{ color: 'var(--text-high)' }}>LIVE</div>
+          </div>
+          <div className="rounded-lg px-2.5 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-raised)' }}>
+            <div className="text-[9px] terminal-text" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>STATE</div>
+            <div className="text-sm terminal-text font-bold" style={{ color: 'var(--buy)' }}>READY</div>
+          </div>
+        </div>
+      </div>
+
       {/* Nav */}
-      <div className="relative px-3 pt-5 flex-1">
-        <div className="apex-label px-2 mb-3">Workspace</div>
+      <div className="relative px-3 pt-4 flex-1">
+        <div className="apex-label px-2 mb-2">Workspace</div>
 
         <nav className="flex flex-col gap-0.5">
           {NAV.map(({ href, label, tag, icon }) => {
@@ -136,7 +140,7 @@ export default function Sidebar() {
               <Link
                 key={href}
                 href={href}
-                className="group relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200"
+                className="group relative flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200"
                 style={
                   active
                     ? {
@@ -182,7 +186,7 @@ export default function Sidebar() {
 
                 {/* Label */}
                 <span
-                  className="flex-1 text-[13px] font-medium"
+                  className="flex-1 text-[12px] font-semibold"
                   style={{ fontFamily: 'var(--font-manrope)' }}
                 >
                   {label}
@@ -211,7 +215,11 @@ export default function Sidebar() {
       <div className="mx-3 h-px" style={{ background: 'var(--border)' }} />
 
       {/* Footer */}
-      <div className="relative px-5 py-4">
+      <div className="relative px-4 py-4 space-y-3">
+        <div className="rounded-lg px-3 py-2.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-raised)' }}>
+          <div className="apex-label mb-1">Quick Keys</div>
+          <div className="text-[10px] terminal-text" style={{ color: 'var(--text-mid)' }}>N new run · H history · S settings</div>
+        </div>
         <div className="flex items-center gap-2.5">
           <div
             className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"

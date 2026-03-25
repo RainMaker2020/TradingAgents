@@ -2,34 +2,21 @@
 import Link from 'next/link'
 import { useRunHistory } from '@/features/history/hooks/useRunHistory'
 import RunHistoryTable from '@/features/history/components/RunHistoryTable'
+import MetricStrip from '@/components/dashboard/MetricStrip'
+import Panel from '@/components/dashboard/Panel'
 
 export default function HistoryPage() {
   const { runs, loading, error } = useRunHistory()
 
   return (
-    <div className="max-w-4xl animate-fade-up">
-      {/* Header */}
-      <div className="flex items-end justify-between mb-8 gap-4">
+    <>
+      <div className="ws-page-header">
         <div>
-          <div className="apex-label mb-3" style={{ color: 'var(--accent)', opacity: 0.7 }}>
-            Execution Log
+          <div className="apex-label" style={{ color: 'var(--accent)', opacity: 0.7 }}>
+            Monitoring Desk
           </div>
-          <h1
-            style={{
-              fontFamily: 'var(--font-syne)',
-              fontSize: '32px',
-              fontWeight: 800,
-              letterSpacing: '-0.04em',
-              color: 'var(--text-high)',
-              lineHeight: 1.1,
-              marginBottom: '8px',
-            }}
-          >
-            Run History
-          </h1>
-          <p className="text-sm" style={{ color: 'var(--text-mid)' }}>
-            Comprehensive log of all agent execution cycles
-          </p>
+          <h1 className="ws-page-title">Run History</h1>
+          <p className="ws-page-subtitle">Filter and inspect prior agent executions with a scan-first operations table.</p>
         </div>
 
         <Link href="/new-run" className="btn-primary shrink-0">
@@ -39,6 +26,15 @@ export default function HistoryPage() {
           New Analysis
         </Link>
       </div>
+
+      <MetricStrip
+        items={[
+          { label: 'Total Runs', value: String(runs.length), tone: 'accent' },
+          { label: 'Completed', value: String(runs.filter((r) => r.status === 'complete').length), tone: 'positive' },
+          { label: 'Running', value: String(runs.filter((r) => r.status === 'running').length), tone: 'warning' },
+          { label: 'Errors', value: String(runs.filter((r) => r.status === 'error').length), tone: 'negative' },
+        ]}
+      />
 
       {loading && (
         <div className="flex items-center gap-2.5 py-8" style={{ color: 'var(--text-mid)' }}>
@@ -65,7 +61,11 @@ export default function HistoryPage() {
         </div>
       )}
 
-      {!loading && <RunHistoryTable runs={runs} />}
-    </div>
+      {!loading && !error && (
+        <Panel title="Execution Log" subtitle="All runs · sortable and filterable">
+          <RunHistoryTable runs={runs} />
+        </Panel>
+      )}
+    </>
   )
 }

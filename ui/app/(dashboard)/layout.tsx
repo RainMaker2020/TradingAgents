@@ -1,4 +1,5 @@
 import Sidebar from '@/components/Sidebar'
+import GlobalTopBar from '@/components/dashboard/GlobalTopBar'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,8 +17,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             zIndex: 0,
           }}
         />
-        <div className="relative z-10 p-8">
-          {children}
+        <div className="relative z-10 p-5 lg:p-6">
+          <GlobalTopBar />
+          <div className="ws-page">{children}</div>
         </div>
       </main>
     </div>

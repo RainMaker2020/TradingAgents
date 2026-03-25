@@ -4,67 +4,9 @@ import AnalystSelector from './AnalystSelector'
 import { useRunSubmit } from '../hooks/useRunSubmit'
 import { DEFAULT_FORM } from '../types'
 import type { NewRunFormState } from '../types'
-
-function SectionCard({
-  step,
-  title,
-  subtitle,
-  children,
-}: {
-  step: number
-  title: string
-  subtitle?: string
-  children: React.ReactNode
-}) {
-  return (
-    <section
-      className="overflow-hidden"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        borderRadius: '14px',
-      }}
-    >
-      {/* Section header */}
-      <div
-        className="px-5 py-3.5 flex items-center gap-3"
-        style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-elevated)' }}
-      >
-        <div
-          className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-          style={{
-            background: 'var(--accent-dim)',
-            color: 'var(--accent-light)',
-            border: '1px solid rgba(0,196,232,0.30)',
-            fontFamily: 'var(--font-mono)',
-            letterSpacing: '-0.01em',
-          }}
-        >
-          {String(step).padStart(2, '0')}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div
-            className="text-sm font-semibold"
-            style={{ color: 'var(--text-high)', fontFamily: 'var(--font-manrope)' }}
-          >
-            {title}
-          </div>
-          {subtitle && (
-            <div
-              className="text-[10px] mt-0.5"
-              style={{ color: 'var(--text-low)', fontFamily: 'var(--font-mono)', letterSpacing: '0.03em' }}
-            >
-              {subtitle}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Section body */}
-      <div className="p-5">{children}</div>
-    </section>
-  )
-}
+import Panel from '@/components/dashboard/Panel'
+import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
+import SegmentedControl from '@/components/dashboard/SegmentedControl'
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -83,11 +25,46 @@ export default function RunConfigForm() {
   const set = (k: keyof NewRunFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }))
 
+  const setPreset = (preset: 'balanced' | 'deep' | 'fast') => {
+    if (preset === 'deep') {
+      setForm((f) => ({ ...f, max_debate_rounds: 3, max_risk_discuss_rounds: 3 }))
+      return
+    }
+    if (preset === 'fast') {
+      setForm((f) => ({ ...f, max_debate_rounds: 1, max_risk_discuss_rounds: 1 }))
+      return
+    }
+    setForm((f) => ({ ...f, max_debate_rounds: 2, max_risk_discuss_rounds: 2 }))
+  }
+
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); submit(form) }}
       className="space-y-3"
     >
+      <Toolbar
+        left={
+          <>
+            <ToolbarField label="Profile">
+              <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setPreset('fast')}>
+                Fast
+              </button>
+            </ToolbarField>
+            <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setPreset('balanced')}>
+              Balanced
+            </button>
+            <button type="button" className="btn-secondary !h-[34px] !px-3 !py-0 text-xs" onClick={() => setPreset('deep')}>
+              Deep Research
+            </button>
+          </>
+        }
+        right={
+          <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)', letterSpacing: '0.06em' }}>
+            LAUNCH PAD
+          </span>
+        }
+      />
+
       {/* Error */}
       {error && (
         <div
@@ -107,9 +84,7 @@ export default function RunConfigForm() {
         </div>
       )}
 
-      {/* ── Section 1: Target ─────────────────────────────────────── */}
-      <SectionCard
-        step={1}
+      <Panel
         title="Analysis Target"
         subtitle="Select the security and trade date"
       >
@@ -137,73 +112,71 @@ export default function RunConfigForm() {
             />
           </div>
         </div>
-      </SectionCard>
+      </Panel>
 
-      {/* ── Section 2: Model ──────────────────────────────────────── */}
-      <SectionCard
-        step={2}
+      <Panel
         title="Model Configuration"
         subtitle="LLM provider and reasoning models"
       >
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
+        <div className="space-y-4">
+          <div>
             <FieldLabel>LLM Provider</FieldLabel>
-            <select
-              className="vault-input"
-              value={form.llm_provider}
-              onChange={(e) => set('llm_provider', e.target.value)}
-            >
-              <option value="anthropic">Anthropic</option>
-              <option value="openai">OpenAI</option>
-              <option value="google">Google</option>
-            </select>
-          </div>
-
-          <div>
-            <FieldLabel>Deep Think LLM</FieldLabel>
-            <input
-              className="vault-input terminal-text text-[12px]"
-              value={form.deep_think_llm}
-              onChange={(e) => set('deep_think_llm', e.target.value)}
-            />
-          </div>
-          <div>
-            <FieldLabel>Quick Think LLM</FieldLabel>
-            <input
-              className="vault-input terminal-text text-[12px]"
-              value={form.quick_think_llm}
-              onChange={(e) => set('quick_think_llm', e.target.value)}
+            <SegmentedControl
+              ariaLabel="LLM provider"
+              activeId={form.llm_provider}
+              onChange={(id) => set('llm_provider', id)}
+              segments={[
+                { id: 'openai', label: 'OpenAI' },
+                { id: 'anthropic', label: 'Anthropic' },
+                { id: 'google', label: 'Google' },
+              ]}
             />
           </div>
 
-          <div>
-            <FieldLabel>Debate Rounds</FieldLabel>
-            <input
-              type="number"
-              min={1}
-              max={5}
-              className="vault-input terminal-text"
-              value={form.max_debate_rounds}
-              onChange={(e) => set('max_debate_rounds', Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <FieldLabel>Risk Discussion Rounds</FieldLabel>
-            <input
-              type="number"
-              min={1}
-              max={5}
-              className="vault-input terminal-text"
-              value={form.max_risk_discuss_rounds}
-              onChange={(e) => set('max_risk_discuss_rounds', Number(e.target.value))}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <FieldLabel>Deep Think LLM</FieldLabel>
+              <input
+                className="vault-input terminal-text text-[12px]"
+                value={form.deep_think_llm}
+                onChange={(e) => set('deep_think_llm', e.target.value)}
+              />
+            </div>
+            <div>
+              <FieldLabel>Quick Think LLM</FieldLabel>
+              <input
+                className="vault-input terminal-text text-[12px]"
+                value={form.quick_think_llm}
+                onChange={(e) => set('quick_think_llm', e.target.value)}
+              />
+            </div>
+            <div>
+              <FieldLabel>Debate Rounds</FieldLabel>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                className="vault-input terminal-text"
+                value={form.max_debate_rounds}
+                onChange={(e) => set('max_debate_rounds', Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <FieldLabel>Risk Discussion Rounds</FieldLabel>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                className="vault-input terminal-text"
+                value={form.max_risk_discuss_rounds}
+                onChange={(e) => set('max_risk_discuss_rounds', Number(e.target.value))}
+              />
+            </div>
           </div>
         </div>
-      </SectionCard>
+      </Panel>
 
-      {/* ── Section 3: Analysts ───────────────────────────────────── */}
-      <SectionCard
-        step={3}
+      <Panel
         title="Active Analysts"
         subtitle="Select AI analysts for this run"
       >
@@ -211,7 +184,7 @@ export default function RunConfigForm() {
           selected={form.enabled_analysts}
           onChange={(v) => set('enabled_analysts', v)}
         />
-      </SectionCard>
+      </Panel>
 
       {/* ── Submit ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between pt-1 px-1">

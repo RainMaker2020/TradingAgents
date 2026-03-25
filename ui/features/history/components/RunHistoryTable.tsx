@@ -1,5 +1,7 @@
 import Link from 'next/link'
+import { useMemo, useState } from 'react'
 import type { RunSummary } from '@/lib/types/run'
+import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 
 type Props = { runs: RunSummary[] }
 
@@ -36,6 +38,29 @@ function StatusDot({ decision }: { decision?: string }) {
 }
 
 export default function RunHistoryTable({ runs }: Props) {
+  const [query, setQuery] = useState('')
+  const [decisionFilter, setDecisionFilter] = useState<'all' | 'BUY' | 'SELL' | 'HOLD'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | RunSummary['status']>('all')
+  const [sortBy, setSortBy] = useState<'created_desc' | 'created_asc' | 'ticker_asc'>('created_desc')
+
+  const filteredRuns = useMemo(() => {
+    const searched = runs.filter((run) => {
+      const hitTicker = run.ticker.toLowerCase().includes(query.toLowerCase())
+      const hitDate = run.date.includes(query)
+      const matchDecision = decisionFilter === 'all' || run.decision === decisionFilter
+      const matchStatus = statusFilter === 'all' || run.status === statusFilter
+      return (hitTicker || hitDate) && matchDecision && matchStatus
+    })
+
+    if (sortBy === 'ticker_asc') {
+      return [...searched].sort((a, b) => a.ticker.localeCompare(b.ticker))
+    }
+    if (sortBy === 'created_asc') {
+      return [...searched].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+    }
+    return [...searched].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+  }, [runs, query, decisionFilter, statusFilter, sortBy])
+
   if (runs.length === 0) {
     return (
       <div
@@ -75,131 +100,111 @@ export default function RunHistoryTable({ runs }: Props) {
   }
 
   return (
-    <div
-      className="overflow-hidden"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        borderRadius: '14px',
-      }}
-    >
-      {/* Table header */}
-      <div
-        className="grid gap-0"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr 100px 160px 80px',
-          background: 'var(--bg-elevated)',
-          borderBottom: '1px solid var(--border)',
-          padding: '0 20px',
-        }}
-      >
-        {['Ticker', 'Date', 'Decision', 'Created', ''].map((h) => (
-          <div
-            key={h}
-            className="apex-label py-3"
-          >
-            {h}
-          </div>
-        ))}
+    <div className="space-y-3">
+      <Toolbar
+        left={
+          <>
+            <ToolbarField label="Search">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="ws-control terminal-text w-[180px]"
+                placeholder="Ticker or date"
+              />
+            </ToolbarField>
+            <ToolbarField label="Decision">
+              <select className="ws-control" value={decisionFilter} onChange={(e) => setDecisionFilter(e.target.value as typeof decisionFilter)}>
+                <option value="all">All</option>
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
+                <option value="HOLD">HOLD</option>
+              </select>
+            </ToolbarField>
+            <ToolbarField label="Status">
+              <select className="ws-control" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}>
+                <option value="all">All</option>
+                <option value="queued">Queued</option>
+                <option value="running">Running</option>
+                <option value="complete">Complete</option>
+                <option value="error">Error</option>
+              </select>
+            </ToolbarField>
+          </>
+        }
+        right={
+          <ToolbarField label="Sort">
+            <select className="ws-control" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+              <option value="created_desc">Newest</option>
+              <option value="created_asc">Oldest</option>
+              <option value="ticker_asc">Ticker A-Z</option>
+            </select>
+          </ToolbarField>
+        }
+      />
+
+      <div className="overflow-hidden rounded-xl" style={{ border: '1px solid var(--border)' }}>
+        <table className="ws-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Decision</th>
+              <th>Created</th>
+              <th aria-label="Action" />
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRuns.map((run) => (
+              <tr key={run.id}>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <StatusDot decision={run.decision ?? undefined} />
+                    <span className="terminal-text font-bold text-sm" style={{ color: 'var(--text-high)' }}>
+                      {run.ticker}
+                    </span>
+                  </div>
+                </td>
+                <td className="terminal-text">{run.date}</td>
+                <td>
+                  <span className="terminal-text text-[11px]" style={{ color: run.status === 'error' ? 'var(--sell)' : run.status === 'running' ? 'var(--hold)' : run.status === 'complete' ? 'var(--buy)' : 'var(--text-low)' }}>
+                    {run.status.toUpperCase()}
+                  </span>
+                </td>
+                <td>
+                  {run.decision ? (
+                    <DecisionBadge decision={run.decision} />
+                  ) : (
+                    <span className="terminal-text text-[11px]" style={{ color: 'var(--text-low)' }}>
+                      PENDING
+                    </span>
+                  )}
+                </td>
+                <td className="terminal-text text-xs">{new Date(run.created_at).toLocaleString()}</td>
+                <td>
+                  <Link href={`/runs/${run.id}`} className="ws-table-action">
+                    Open
+                  </Link>
+                </td>
+              </tr>
+            ))}
+            {filteredRuns.length === 0 && (
+              <tr>
+                <td colSpan={6} className="terminal-text text-xs" style={{ color: 'var(--text-low)' }}>
+                  No rows match the current filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {/* Rows */}
-      <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-        {runs.map((run, idx) => (
-          <div
-            key={run.id}
-            className="group transition-colors duration-100 animate-fade-up"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr 100px 160px 80px',
-              padding: '0 20px',
-              alignItems: 'center',
-              animationDelay: `${idx * 30}ms`,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-hover)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = '')}
-          >
-            {/* Ticker */}
-            <div className="py-4 flex items-center gap-2.5">
-              <StatusDot decision={run.decision} />
-              <span
-                className="terminal-text font-bold text-sm tracking-wider"
-                style={{ color: 'var(--text-high)' }}
-              >
-                {run.ticker}
-              </span>
-            </div>
-
-            {/* Date */}
-            <div
-              className="py-4 terminal-text text-sm"
-              style={{ color: 'var(--text-mid)', letterSpacing: '0.02em' }}
-            >
-              {run.date}
-            </div>
-
-            {/* Decision */}
-            <div className="py-4">
-              {run.decision ? (
-                <DecisionBadge decision={run.decision} />
-              ) : (
-                <span
-                  className="text-xs font-bold"
-                  style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-low)', letterSpacing: '0.08em' }}
-                >
-                  PENDING
-                </span>
-              )}
-            </div>
-
-            {/* Created */}
-            <div
-              className="py-4 text-xs terminal-text"
-              style={{ color: 'var(--text-low)', letterSpacing: '0.02em' }}
-            >
-              {new Date(run.created_at).toLocaleString()}
-            </div>
-
-            {/* Action */}
-            <div className="py-4">
-              <Link
-                href={`/runs/${run.id}`}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold transition-all duration-150 opacity-0 group-hover:opacity-100"
-                style={{
-                  color: 'var(--accent)',
-                  fontFamily: 'var(--font-manrope)',
-                  letterSpacing: '0.02em',
-                }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent-light)' }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)' }}
-              >
-                View
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2.5 6h7M6.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </Link>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Footer */}
-      <div
-        className="px-5 py-3 flex items-center justify-between"
-        style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)' }}
-      >
-        <span
-          className="text-[10px] font-bold"
-          style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-low)', letterSpacing: '0.1em' }}
-        >
-          {runs.length} RUN{runs.length !== 1 ? 'S' : ''} TOTAL
+      <div className="flex items-center justify-between px-1">
+        <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)' }}>
+          {filteredRuns.length} / {runs.length} VISIBLE
         </span>
-        <span
-          className="text-[10px]"
-          style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-low)', letterSpacing: '0.06em' }}
-        >
-          TRADINGAGENTS · LOCAL
+        <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)' }}>
+          DESKTOP MONITOR MODE
         </span>
       </div>
     </div>
