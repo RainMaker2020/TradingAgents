@@ -339,7 +339,7 @@ def test_concurrent_sse_requests_start_only_one_pipeline(store):
     pipeline_started = threading.Event()
     pipeline_proceed = threading.Event()
 
-    def slow_pipeline(run_id, cfg):
+    def slow_pipeline(run_id, cfg, cancel_event):
         nonlocal pipeline_start_count
         pipeline_start_count += 1
         pipeline_started.set()
@@ -371,6 +371,68 @@ def test_concurrent_sse_requests_start_only_one_pipeline(store):
     assert pipeline_start_count == 1
     assert any(e["event"] == "run:complete" for e in results[0])
     assert any(e["event"] == "run:complete" for e in results[1])
+
+
+def test_pipeline_stops_after_cancel_event_set(store):
+    """Pipeline loop exits when cancel event is set; COMPLETE is never written."""
+    config = RunConfig(ticker="NVDA", date="2026-03-25")
+    run = store.create(config)
+    service = RunService(store)
+
+    cancel_called_at_step = []
+
+    def yields_then_cancel():
+        yield ("market_analyst", "report 1")
+        # Simulate abort arriving before the next iteration
+        store.try_abort_run(run.id)
+        with service._cancel_lock:
+            evt = service._cancel_events.get(run.id)
+            if evt:
+                evt.set()
+        yield ("news_analyst", "report 2")  # should never be processed
+
+    with patch("api.services.run_service.TradingAgentsGraph") as MockGraph:
+        mock = MagicMock()
+        mock.stream_propagate.return_value = yields_then_cancel()
+        mock._last_decision = "BUY"
+        MockGraph.return_value = mock
+        with patch("api.services.run_service.time.sleep"):
+            events = list(service.stream_events(run.id))
+
+    final = store.get(run.id)
+    assert final.status == RunStatus.ABORTED
+    # news_analyst step should not have been processed
+    assert not any(
+        e["event"] == "agent:complete" and e["data"]["step"] == "news_analyst"
+        for e in events
+    )
+
+def test_abort_run_sets_cancel_event_and_db(store):
+    """abort_run() writes ABORTED to DB and signals the in-memory cancel event."""
+    config = RunConfig(ticker="NVDA", date="2026-03-25")
+    run = store.create(config)
+    service = RunService(store)
+
+    # Inject a cancel event as if a pipeline is running
+    import threading as _threading
+    evt = _threading.Event()
+    with service._cancel_lock:
+        service._cancel_events[run.id] = evt
+    store.update_status(run.id, RunStatus.RUNNING)
+
+    result = service.abort_run(run.id)
+
+    assert result is True
+    assert evt.is_set()
+    assert store.get(run.id).status == RunStatus.ABORTED
+
+def test_abort_run_noop_for_complete(store):
+    config = RunConfig(ticker="NVDA", date="2026-03-25")
+    run = store.create(config)
+    store.update_status(run.id, RunStatus.COMPLETE)
+    service = RunService(store)
+    assert service.abort_run(run.id) is False
+    assert store.get(run.id).status == RunStatus.COMPLETE
 
 
 def test_pipeline_continues_after_sse_disconnect(service, store):

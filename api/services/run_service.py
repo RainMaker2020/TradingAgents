@@ -20,12 +20,25 @@ except ImportError:
 class RunService:
     def __init__(self, store: RunsStore):
         self._store = store
+        self._cancel_events: dict[str, threading.Event] = {}
+        self._cancel_lock = threading.Lock()
 
-    def _run_pipeline(self, run_id: str, config: RunConfig) -> None:
+    def abort_run(self, run_id: str) -> bool:
+        """Write ABORTED to DB first (durable), then signal the pipeline thread."""
+        aborted = self._store.try_abort_run(run_id)
+        if aborted:
+            with self._cancel_lock:
+                event = self._cancel_events.get(run_id)
+                if event:
+                    event.set()
+        return aborted
+
+    def _run_pipeline(self, run_id: str, config: RunConfig, cancel_event: threading.Event) -> None:
         """Background thread: executes the pipeline and writes results to SQLite.
 
         Runs independently of any SSE connection — client disconnects do not
-        interrupt this thread.
+        interrupt this thread. Checks cancel_event between agent steps; on abort,
+        exits without writing a terminal status (try_abort_run already wrote ABORTED).
         """
         try:
             ta_config = DEFAULT_CONFIG.copy()
@@ -47,6 +60,8 @@ class RunService:
             turn_counts: defaultdict[str, int] = defaultdict(int)
 
             for step_key, report in ta.stream_propagate(config.ticker, config.date):
+                if cancel_event.is_set():
+                    return  # abort requested; ABORTED already in DB — don't write COMPLETE/ERROR
                 tokens = token_handler.snapshot_and_reset()
                 turn = turn_counts[step_key]
                 self._store.add_report(run_id, f"{step_key}:{turn}", report)
@@ -57,11 +72,13 @@ class RunService:
                 turn_counts[step_key] += 1
 
             decision = ta._last_decision or "HOLD"
-            self._store.update_decision(run_id, decision)
-            self._store.update_status(run_id, RunStatus.COMPLETE)
+            self._store.try_complete_run(run_id, decision)
 
         except Exception as e:
-            self._store.set_error(run_id, str(e))
+            self._store.try_error_run(run_id, str(e))
+        finally:
+            with self._cancel_lock:
+                self._cancel_events.pop(run_id, None)
 
     _MAX_POLL_SECONDS = 3600  # 1 hour wall-clock cap; prevents infinite hang on thread crash
 
@@ -99,6 +116,9 @@ class RunService:
                 return
             if snapshot.status == RunStatus.ERROR:
                 yield {"event": "run:error", "data": {"message": snapshot.error or "Unknown error"}}
+                return
+            if snapshot.status == RunStatus.ABORTED:
+                yield {"event": "run:aborted", "data": {"run_id": run_id}}
                 return
             time.sleep(0.5)
 
@@ -148,9 +168,13 @@ class RunService:
         self._store.clear_reports(run_id)
         self._store.clear_token_usage(run_id)
 
+        with self._cancel_lock:
+            cancel_event = threading.Event()
+            self._cancel_events[run_id] = cancel_event
+
         thread = threading.Thread(
             target=self._run_pipeline,
-            args=(run_id, run.config),
+            args=(run_id, run.config, cancel_event),
             daemon=True,
         )
         thread.start()
