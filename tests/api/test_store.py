@@ -159,3 +159,83 @@ def test_try_claim_run_fails_for_complete(tmp_path):
     run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
     store.update_status(run.id, RunStatus.COMPLETE)
     assert store.try_claim_run(run.id) is False
+
+
+def test_try_abort_run_succeeds_for_queued(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    assert store.try_abort_run(run.id) is True
+    assert store.get(run.id).status == RunStatus.ABORTED
+
+def test_try_abort_run_succeeds_for_running(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    assert store.try_abort_run(run.id) is True
+    assert store.get(run.id).status == RunStatus.ABORTED
+
+def test_try_abort_run_noop_for_complete(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.update_status(run.id, RunStatus.COMPLETE)
+    assert store.try_abort_run(run.id) is False
+    assert store.get(run.id).status == RunStatus.COMPLETE
+
+def test_try_abort_run_noop_for_error(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.set_error(run.id, "boom")
+    assert store.try_abort_run(run.id) is False
+    assert store.get(run.id).status == RunStatus.ERROR
+
+def test_try_abort_run_noop_for_aborted(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.try_abort_run(run.id)
+    assert store.try_abort_run(run.id) is False  # idempotent
+
+def test_try_complete_run_only_when_running(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    assert store.try_complete_run(run.id, "BUY") is True
+    fetched = store.get(run.id)
+    assert fetched.status == RunStatus.COMPLETE
+    assert fetched.decision == "BUY"
+
+def test_try_complete_run_rejected_when_aborted(tmp_path):
+    """try_complete_run must not overwrite ABORTED."""
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    store.try_abort_run(run.id)
+    assert store.try_complete_run(run.id, "BUY") is False
+    assert store.get(run.id).status == RunStatus.ABORTED
+
+def test_try_error_run_only_when_running(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    assert store.try_error_run(run.id, "timeout") is True
+    fetched = store.get(run.id)
+    assert fetched.status == RunStatus.ERROR
+    assert fetched.error == "timeout"
+
+def test_try_error_run_rejected_when_aborted(tmp_path):
+    """try_error_run must not overwrite ABORTED."""
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    store.try_abort_run(run.id)
+    assert store.try_error_run(run.id, "timeout") is False
+    assert store.get(run.id).status == RunStatus.ABORTED
+
+def test_abort_not_overwritten_by_complete_or_error_race(tmp_path):
+    """If abort wins the race, subsequent complete/error writes are silently rejected."""
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    store.update_status(run.id, RunStatus.RUNNING)
+    store.try_abort_run(run.id)         # abort wins
+    store.try_complete_run(run.id, "BUY")   # pipeline finalizes late
+    store.try_error_run(run.id, "boom")     # exception handler fires late
+    assert store.get(run.id).status == RunStatus.ABORTED  # abort status preserved
