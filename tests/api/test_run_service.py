@@ -379,8 +379,6 @@ def test_pipeline_stops_after_cancel_event_set(store):
     run = store.create(config)
     service = RunService(store)
 
-    cancel_called_at_step = []
-
     def yields_then_cancel():
         yield ("market_analyst", "report 1")
         # Simulate abort arriving before the next iteration
@@ -414,8 +412,7 @@ def test_abort_run_sets_cancel_event_and_db(store):
     service = RunService(store)
 
     # Inject a cancel event as if a pipeline is running
-    import threading as _threading
-    evt = _threading.Event()
+    evt = threading.Event()
     with service._cancel_lock:
         service._cancel_events[run.id] = evt
     store.update_status(run.id, RunStatus.RUNNING)

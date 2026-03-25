@@ -37,8 +37,9 @@ class RunService:
         """Background thread: executes the pipeline and writes results to SQLite.
 
         Runs independently of any SSE connection — client disconnects do not
-        interrupt this thread. Checks cancel_event between agent steps; on abort,
-        exits without writing a terminal status (try_abort_run already wrote ABORTED).
+        interrupt this thread. Checks cancel_event at the start of each iteration (after the step completes
+        its LLM call and report is written to the store). On abort, exits before the
+        next step starts; try_abort_run already wrote ABORTED so no terminal status is written.
         """
         try:
             ta_config = DEFAULT_CONFIG.copy()
