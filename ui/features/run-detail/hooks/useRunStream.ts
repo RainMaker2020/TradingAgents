@@ -1,7 +1,8 @@
 'use client'
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useState, useCallback } from 'react'
 import { createSSEConnection } from '@/lib/sse'
 import { getRun, getRunStreamUrl } from '@/lib/api-client'
+import * as api from '@/lib/api-client'
 import { AGENT_STEPS } from '@/lib/types/run'
 import type { AgentStep } from '@/lib/types/run'
 import type { ChiefAnalystReport } from '@/lib/types/agents'
@@ -27,6 +28,7 @@ type Action =
   | { type: 'AGENT_COMPLETE'; step: AgentStep; turn: number; report: string; tokens_in?: number; tokens_out?: number }
   | { type: 'RUN_COMPLETE';   decision: string }
   | { type: 'RUN_ERROR';      message: string }
+  | { type: 'RUN_ABORTED' }
   | { type: 'CONNECTED' }
   | { type: 'HYDRATE_META';   ticker: string; date: string }
 
@@ -75,6 +77,9 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
     case 'RUN_ERROR':
       return { ...state, status: 'error', error: action.message }
 
+    case 'RUN_ABORTED':
+      return { ...state, status: 'aborted', error: null }
+
     case 'HYDRATE_META':
       return { ...state, ticker: action.ticker, date: action.date }
 
@@ -83,8 +88,26 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
   }
 }
 
-export function useRunStream(runId: string): RunStreamState {
+export function useRunStream(runId: string): RunStreamState & { abortRun: () => Promise<void>; isAborting: boolean } {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const [isAborting, setIsAborting] = useState(false)
+
+  // Clear isAborting when any terminal state arrives (including SSE disconnect fallback)
+  useEffect(() => {
+    if (state.status === 'complete' || state.status === 'error' || state.status === 'aborted') {
+      setIsAborting(false)
+    }
+  }, [state.status])
+
+  const abortRun = useCallback(async () => {
+    setIsAborting(true)
+    try {
+      await api.abortRun(runId)
+    } catch {
+      setIsAborting(false)
+      // Toast: component layer should handle UI feedback if needed
+    }
+  }, [runId])
 
   useEffect(() => {
     let close: (() => void) | undefined
@@ -92,7 +115,6 @@ export function useRunStream(runId: string): RunStreamState {
 
     getRun(runId).then((run) => {
       if (aborted) return
-
       dispatch({ type: 'HYDRATE_META', ticker: run.ticker, date: run.date })
 
       if (run.status === 'complete' && Object.keys(run.reports).length > 0) {
@@ -110,6 +132,22 @@ export function useRunStream(runId: string): RunStreamState {
         return
       }
 
+      if (run.status === 'aborted') {
+        dispatch({ type: 'CONNECTED' })
+        for (const [key, report] of Object.entries(run.reports)) {
+          const lastColon = key.lastIndexOf(':')
+          if (lastColon === -1) continue
+          const step = key.slice(0, lastColon) as AgentStep
+          const turn = parseInt(key.slice(lastColon + 1), 10)
+          const tok  = run.token_usage?.[key] ?? { tokens_in: 0, tokens_out: 0 }
+          dispatch({ type: 'AGENT_START',    step, turn })
+          dispatch({ type: 'AGENT_COMPLETE', step, turn, report,
+                     tokens_in: tok.tokens_in, tokens_out: tok.tokens_out })
+        }
+        dispatch({ type: 'RUN_ABORTED' })
+        return
+      }
+
       const url = getRunStreamUrl(runId)
       close = createSSEConnection(url, {
         onOpen:          () => dispatch({ type: 'CONNECTED' }),
@@ -120,6 +158,7 @@ export function useRunStream(runId: string): RunStreamState {
                      tokens_in, tokens_out }),
         onRunComplete:   ({ decision }) => dispatch({ type: 'RUN_COMPLETE', decision }),
         onRunError:      ({ message })  => dispatch({ type: 'RUN_ERROR',    message }),
+        onRunAborted:    ()             => dispatch({ type: 'RUN_ABORTED' }),
       })
     }).catch(() => {
       if (!aborted) dispatch({ type: 'RUN_ERROR', message: 'Failed to load run' })
@@ -128,5 +167,5 @@ export function useRunStream(runId: string): RunStreamState {
     return () => { aborted = true; close?.() }
   }, [runId])
 
-  return state
+  return { ...state, abortRun, isAborting }
 }

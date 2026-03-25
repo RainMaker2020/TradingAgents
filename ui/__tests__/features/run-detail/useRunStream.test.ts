@@ -31,6 +31,7 @@ jest.mock('@/lib/api-client', () => ({
     reports: {},
     error: null,
   }),
+  abortRun: jest.fn().mockResolvedValue({ status: 'aborted' }),
 }))
 
 test('appends multiple turns for same step', async () => {
@@ -248,4 +249,126 @@ test('AGENT_COMPLETE for chief_analyst with invalid JSON sets chiefAnalystReport
 test('initial chiefAnalystReport is null', () => {
   const { result } = renderHook(() => useRunStream('abc'))
   expect(result.current.chiefAnalystReport).toBeNull()
+})
+
+describe('RUN_ABORTED action', () => {
+  it('sets status to aborted and clears isAborting when getRun returns aborted status', async () => {
+    const { getRun } = jest.requireMock('@/lib/api-client')
+    const { createSSEConnection } = jest.requireMock('@/lib/sse')
+    jest.clearAllMocks()
+
+    getRun.mockResolvedValueOnce({
+      id: 'abort1',
+      ticker: 'TSLA',
+      date: '2026-03-23',
+      status: 'aborted',
+      decision: null,
+      created_at: '2026-03-23T00:00:00Z',
+      config: null,
+      reports: { 'market_analyst:0': 'partial report' },
+      error: null,
+      token_usage: null,
+    })
+
+    const { result } = renderHook(() => useRunStream('abort1'))
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+    expect(result.current.status).toBe('aborted')
+    expect(result.current.isAborting).toBe(false)
+    expect(createSSEConnection).not.toHaveBeenCalled()
+    // Partial reports hydrated before aborting
+    expect(result.current.reports['market_analyst']).toEqual(['partial report'])
+  })
+
+  it('sets status to aborted when SSE fires onRunAborted', async () => {
+    const { getRun } = jest.requireMock('@/lib/api-client')
+    const { createSSEConnection } = jest.requireMock('@/lib/sse')
+    jest.clearAllMocks()
+
+    getRun.mockResolvedValueOnce({
+      id: 'abort2',
+      ticker: 'TSLA',
+      date: '2026-03-23',
+      status: 'queued',
+      decision: null,
+      created_at: '2026-03-23T00:00:00Z',
+      config: null,
+      reports: {},
+      error: null,
+      token_usage: null,
+    })
+
+    createSSEConnection.mockImplementationOnce(
+      (_url: string, handlers: Record<string, (d: unknown) => void>) => {
+        setTimeout(() => {
+          handlers.onAgentStart?.({ step: 'bull_researcher', turn: 0 })
+          handlers.onRunAborted?.({ run_id: 'abort2' })
+        }, 0)
+        return jest.fn()
+      }
+    )
+
+    const { result } = renderHook(() => useRunStream('abort2'))
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+    expect(result.current.status).toBe('aborted')
+    expect(result.current.isAborting).toBe(false)
+  })
+
+  it('abortRun sets isAborting to true and calls api.abortRun', async () => {
+    const { getRun, abortRun: abortRunMock } = jest.requireMock('@/lib/api-client')
+    jest.clearAllMocks()
+
+    getRun.mockResolvedValue({
+      id: 'abort3',
+      ticker: 'MSFT',
+      date: '2026-03-23',
+      status: 'queued',
+      decision: null,
+      created_at: '2026-03-23T00:00:00Z',
+      config: null,
+      reports: {},
+      error: null,
+    })
+
+    abortRunMock.mockResolvedValue({ status: 'aborted' })
+
+    const { result } = renderHook(() => useRunStream('abort3'))
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+    // Trigger abortRun — isAborting should become true immediately
+    await act(async () => {
+      await result.current.abortRun()
+    })
+
+    expect(abortRunMock).toHaveBeenCalledWith('abort3')
+  })
+
+  it('resets isAborting to false when api.abortRun throws', async () => {
+    const { getRun, abortRun: abortRunMock } = jest.requireMock('@/lib/api-client')
+    jest.clearAllMocks()
+
+    getRun.mockResolvedValue({
+      id: 'abort4',
+      ticker: 'MSFT',
+      date: '2026-03-23',
+      status: 'queued',
+      decision: null,
+      created_at: '2026-03-23T00:00:00Z',
+      config: null,
+      reports: {},
+      error: null,
+    })
+
+    abortRunMock.mockRejectedValue(new Error('Network error'))
+
+    const { result } = renderHook(() => useRunStream('abort4'))
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+    await act(async () => {
+      await result.current.abortRun()
+    })
+
+    expect(result.current.isAborting).toBe(false)
+  })
 })
