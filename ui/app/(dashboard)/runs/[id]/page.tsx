@@ -11,6 +11,7 @@ import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 import { AGENT_STEP_LABELS } from '@/lib/types/run'
 import type { AgentStep } from '@/lib/types/run'
+import AbortConfirmModal from '@/features/run-detail/components/AbortConfirmModal'
 
 const STATUS_CONFIG: Record<string, {
   bg: string; color: string; dot: string; label: string; pulse: boolean
@@ -19,12 +20,15 @@ const STATUS_CONFIG: Record<string, {
   running:    { bg: 'var(--hold-bg)',          color: 'var(--hold)',      dot: 'var(--hold)',      label: 'Running',     pulse: true  },
   complete:   { bg: 'var(--buy-bg)',           color: 'var(--buy)',       dot: 'var(--buy)',       label: 'Complete',    pulse: false },
   error:      { bg: 'var(--error-bg)',         color: 'var(--error)',     dot: 'var(--error)',     label: 'Error',       pulse: false },
+  aborted:    { bg: 'var(--bg-elevated)',      color: 'var(--text-mid)',  dot: 'var(--text-low)',  label: 'Aborted',     pulse: false },
 }
 
 export default function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { steps, reports, verdict, status, error, tokensTotal, tokensByStep, chiefAnalystReport, ticker, date } = useRunStream(id)
+  const { steps, reports, verdict, status, error, tokensTotal, tokensByStep,
+          chiefAnalystReport, ticker, date, abortRun, isAborting } = useRunStream(id)
   const [viewMode, setViewMode] = useState<'overview' | 'diagnostics'>('overview')
+  const [showAbortModal, setShowAbortModal] = useState(false)
 
   const sc = STATUS_CONFIG[status] ?? STATUS_CONFIG.connecting
   const stepEntries = Object.entries(steps)
@@ -149,6 +153,19 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             </div>
           )}
 
+          {status === 'aborted' && (
+            <div
+              className="px-4 py-3 rounded-xl text-sm flex items-center gap-2"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-mid)',
+                border: '1px solid var(--border-raised)',
+              }}
+            >
+              Analysis aborted — partial results are available below.
+            </div>
+          )}
+
           {/* Verdict */}
           {verdict && ticker && date && (
             <VerdictBanner verdict={verdict} ticker={ticker} date={date} />
@@ -177,6 +194,28 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                 <span>Total output tokens</span>
                 <span className="terminal-text">{tokensTotal.out}</span>
               </div>
+              {(status === 'queued' || status === 'running') && (
+                <div className="flex items-center justify-between pt-1">
+                  <span>Actions</span>
+                  <button
+                    onClick={() => setShowAbortModal(true)}
+                    disabled={isAborting}
+                    style={{
+                      background: 'transparent',
+                      color: 'var(--error)',
+                      border: '1px solid var(--error)',
+                      borderRadius: '5px',
+                      padding: '4px 12px',
+                      fontSize: '11px',
+                      cursor: isAborting ? 'not-allowed' : 'pointer',
+                      opacity: isAborting ? 0.5 : 1,
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    {isAborting ? 'Aborting…' : '⏹ Abort'}
+                  </button>
+                </div>
+              )}
             </div>
           </Panel>
 
@@ -211,6 +250,13 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
           )}
         </div>
       </div>
+
+      <AbortConfirmModal
+        open={showAbortModal}
+        ticker={ticker ?? ''}
+        onConfirm={() => { setShowAbortModal(false); abortRun() }}
+        onCancel={() => setShowAbortModal(false)}
+      />
     </div>
   )
 }
