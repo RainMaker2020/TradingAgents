@@ -432,6 +432,33 @@ def test_abort_run_noop_for_complete(store):
     assert store.get(run.id).status == RunStatus.COMPLETE
 
 
+def test_poll_events_emits_run_aborted_on_aborted_status(store):
+    """_poll_events yields run:aborted when it sees ABORTED status."""
+    config = RunConfig(ticker="NVDA", date="2026-03-25")
+    run = store.create(config)
+    store.update_status(run.id, RunStatus.RUNNING)
+    store.try_abort_run(run.id)
+    service = RunService(store)
+    with patch("api.services.run_service.time.sleep"):
+        events = list(service._poll_events(run.id))
+    assert any(e["event"] == "run:aborted" for e in events)
+    assert not any(e["event"] == "run:complete" for e in events)
+    assert not any(e["event"] == "run:error" for e in events)
+
+def test_stream_events_replays_partial_reports_for_aborted_run(store):
+    """stream_events on an ABORTED run replays partial reports then emits run:aborted."""
+    config = RunConfig(ticker="NVDA", date="2026-03-25")
+    run = store.create(config)
+    store.update_status(run.id, RunStatus.RUNNING)
+    store.add_report(run.id, "market_analyst:0", "partial report")
+    store.try_abort_run(run.id)
+    service = RunService(store)
+    events = list(service.stream_events(run.id))
+    assert any(e["event"] == "agent:complete" and e["data"]["step"] == "market_analyst"
+               for e in events)
+    assert events[-1]["event"] == "run:aborted"
+
+
 def test_pipeline_continues_after_sse_disconnect(service, store):
     """When the SSE connection closes mid-run (client navigates away), the background
     pipeline thread must continue and write all results to the store — no freezing."""

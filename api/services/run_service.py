@@ -154,6 +154,26 @@ class RunService:
             yield {"event": "run:complete", "data": {"decision": run.decision or "HOLD", "run_id": run_id}}
             return
 
+        if run.status == RunStatus.ABORTED:
+            # Replay partial reports collected before abort, then signal aborted
+            token_usage = {k: v.model_dump() for k, v in (run.token_usage or {}).items()}
+            for key, report in run.reports.items():
+                if ":" not in key:
+                    continue
+                step_key, turn_str = key.rsplit(":", 1)
+                if not turn_str.isdigit():
+                    continue
+                turn = int(turn_str)
+                raw = token_usage.get(key, {"tokens_in": 0, "tokens_out": 0})
+                yield {"event": "agent:start",    "data": {"step": step_key, "turn": turn}}
+                yield {"event": "agent:complete", "data": {
+                    "step": step_key, "turn": turn, "report": report,
+                    "tokens_in": raw.get("tokens_in", 0),
+                    "tokens_out": raw.get("tokens_out", 0),
+                }}
+            yield {"event": "run:aborted", "data": {"run_id": run_id}}
+            return
+
         if run.status == RunStatus.RUNNING:
             yield from self._poll_events(run_id)
             return
