@@ -53,7 +53,7 @@ export const STEP_PHASE: Record<AgentStep, 'analysts' | 'researchers' | 'trader'
   chief_analyst:        'summary',
 }
 
-export type RunStatus = 'queued' | 'running' | 'complete' | 'error'
+export type RunStatus = 'queued' | 'running' | 'complete' | 'error' | 'aborted'
 
 export type RunConfig = {
   ticker: string

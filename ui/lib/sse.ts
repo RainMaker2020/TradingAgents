@@ -6,6 +6,7 @@ export type SSEHandlers = {
   }) => void
   onRunComplete?: (data: { decision: string; run_id: string }) => void
   onRunError?: (data: { message: string }) => void
+  onRunAborted?: (data: { run_id: string }) => void
   onOpen?: () => void
 }
 
@@ -37,6 +38,12 @@ export function createSSEConnection(url: string, handlers: SSEHandlers): () => v
 
   source.addEventListener('run:error', (e: MessageEvent) => {
     try { handlers.onRunError?.(JSON.parse(e.data)) }
+    catch { handlers.onRunError?.({ message: 'Failed to parse event data' }) }
+    source.close()
+  })
+
+  source.addEventListener('run:aborted', (e: MessageEvent) => {
+    try { handlers.onRunAborted?.(JSON.parse(e.data)) }
     catch { handlers.onRunError?.({ message: 'Failed to parse event data' }) }
     source.close()
   })
