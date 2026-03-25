@@ -5,6 +5,7 @@ const mockPush = jest.fn()
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }))
 jest.mock('@/lib/api-client', () => ({
   createRun: jest.fn().mockResolvedValue({ id: 'test123' }),
+  getProviderModels: jest.fn().mockResolvedValue({ provider: 'openai', models: ['gpt-5-mini'], error: null }),
 }))
 
 test('renders ticker and date inputs', () => {

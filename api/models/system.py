@@ -29,3 +29,9 @@ class RuntimeSnapshot(BaseModel):
     session: SessionStats
     constraints: RuntimeConstraints
     defaults: Settings
+
+
+class ProviderModels(BaseModel):
+    provider: str
+    models: list[str]
+    error: str | None = None

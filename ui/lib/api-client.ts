@@ -1,6 +1,6 @@
 import type { RunConfig, RunSummary } from './types/run'
 import type { Settings } from './types/settings'
-import type { RuntimeHealth, RuntimeSnapshot } from './types/system'
+import type { ProviderModels, RuntimeHealth, RuntimeSnapshot } from './types/system'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ''
 
@@ -44,6 +44,9 @@ export const getSystemHealth = (): Promise<RuntimeHealth> =>
 
 export const getRuntimeSnapshot = (): Promise<RuntimeSnapshot> =>
   apiFetch('/api/system/runtime')
+
+export const getProviderModels = (provider: string): Promise<ProviderModels> =>
+  apiFetch(`/api/system/models/${encodeURIComponent(provider)}`)
 
 export const getRunStreamUrl = (id: string): string =>
   `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/runs/${id}/stream`

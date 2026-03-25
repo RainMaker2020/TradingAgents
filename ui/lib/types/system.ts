@@ -28,3 +28,9 @@ export type RuntimeSnapshot = {
   constraints: RuntimeConstraints
   defaults: Settings
 }
+
+export type ProviderModels = {
+  provider: string
+  models: string[]
+  error: string | null
+}

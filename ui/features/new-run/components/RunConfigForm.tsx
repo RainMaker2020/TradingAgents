@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AnalystSelector from './AnalystSelector'
 import { useRunSubmit } from '../hooks/useRunSubmit'
 import { DEFAULT_FORM } from '../types'
@@ -8,6 +8,7 @@ import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 import SegmentedControl from '@/components/dashboard/SegmentedControl'
 import { RUN_LIMITS } from '@/lib/defaults'
+import { getProviderModels } from '@/lib/api-client'
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -23,9 +24,41 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 export default function RunConfigForm() {
   const [form, setForm] = useState<NewRunFormState>(DEFAULT_FORM)
   const [activePreset, setActivePreset] = useState<'fast' | 'balanced' | 'deep' | null>(null)
+  const [modelsLoading, setModelsLoading] = useState(true)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
   const { submit, loading, error } = useRunSubmit()
   const set = (k: keyof NewRunFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    let active = true
+    getProviderModels(form.llm_provider)
+      .then((resp) => {
+        if (!active) return
+        setAvailableModels(resp.models)
+        setModelsError(resp.error)
+      })
+      .catch((err) => {
+        if (!active) return
+        setAvailableModels([])
+        setModelsError(err instanceof Error ? err.message : 'Failed to load models')
+      })
+      .finally(() => {
+        if (active) setModelsLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [form.llm_provider])
+
+  const modelOptions = Array.from(
+    new Set([
+      ...availableModels,
+      form.deep_think_llm,
+      form.quick_think_llm,
+    ].filter(Boolean)),
+  )
 
   const setPreset = (preset: 'balanced' | 'deep' | 'fast') => {
     setActivePreset(preset)
@@ -134,7 +167,11 @@ export default function RunConfigForm() {
             <SegmentedControl
               ariaLabel="LLM provider"
               activeId={form.llm_provider}
-              onChange={(id) => set('llm_provider', id)}
+                onChange={(id) => {
+                  setModelsLoading(true)
+                  setModelsError(null)
+                  set('llm_provider', id)
+                }}
               segments={[
                 { id: 'openai', label: 'OpenAI' },
                 { id: 'anthropic', label: 'Anthropic' },
@@ -146,19 +183,45 @@ export default function RunConfigForm() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <FieldLabel>Deep Think LLM</FieldLabel>
-              <input
+              <select
                 className="vault-input terminal-text text-[12px]"
                 value={form.deep_think_llm}
                 onChange={(e) => set('deep_think_llm', e.target.value)}
-              />
+                disabled={modelsLoading && modelOptions.length === 0}
+              >
+                {modelOptions.length === 0 ? (
+                  <option value={form.deep_think_llm}>
+                    {modelsLoading ? 'Loading models...' : 'No models available'}
+                  </option>
+                ) : (
+                  modelOptions.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))
+                )}
+              </select>
             </div>
             <div>
               <FieldLabel>Quick Think LLM</FieldLabel>
-              <input
+              <select
                 className="vault-input terminal-text text-[12px]"
                 value={form.quick_think_llm}
                 onChange={(e) => set('quick_think_llm', e.target.value)}
-              />
+                disabled={modelsLoading && modelOptions.length === 0}
+              >
+                {modelOptions.length === 0 ? (
+                  <option value={form.quick_think_llm}>
+                    {modelsLoading ? 'Loading models...' : 'No models available'}
+                  </option>
+                ) : (
+                  modelOptions.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))
+                )}
+              </select>
             </div>
             <div>
               <FieldLabel>Debate Rounds</FieldLabel>
@@ -185,6 +248,11 @@ export default function RunConfigForm() {
           </div>
         </div>
       </Panel>
+      {modelsError && (
+        <p className="text-xs px-1" style={{ color: 'var(--hold)' }}>
+          Model list: {modelsError}
+        </p>
+      )}
 
       <Panel
         title="Active Analysts"

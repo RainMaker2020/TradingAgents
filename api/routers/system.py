@@ -8,11 +8,13 @@ from fastapi import APIRouter
 from api.models.run import RunStatus
 from api.models.settings import Settings
 from api.models.system import (
+    ProviderModels,
     RuntimeConstraints,
     RuntimeHealth,
     RuntimeSnapshot,
     SessionStats,
 )
+from api.services.model_catalog_service import ModelCatalogError, get_provider_models
 from api.services.settings_service import load_settings
 from api.store.runs_store import RunsStore
 
@@ -100,3 +102,12 @@ def get_runtime_snapshot():
         ),
         defaults=defaults,
     )
+
+
+@router.get("/models/{provider}", response_model=ProviderModels)
+def get_models(provider: str):
+    try:
+        models = get_provider_models(provider)
+        return ProviderModels(provider=provider, models=models)
+    except ModelCatalogError as exc:
+        return ProviderModels(provider=provider, models=[], error=str(exc))

@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { getSettings, updateSettings } from '@/lib/api-client'
+import { getProviderModels, getSettings, updateSettings } from '@/lib/api-client'
 import type { SettingsFormState } from '../types'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar from '@/components/dashboard/Toolbar'
@@ -13,6 +13,9 @@ export default function SettingsForm() {
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [modelsLoading, setModelsLoading] = useState(true)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
   const set = (k: keyof SettingsFormState, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }))
 
@@ -22,6 +25,35 @@ export default function SettingsForm() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    let active = true
+    getProviderModels(form.llm_provider)
+      .then((resp) => {
+        if (!active) return
+        setAvailableModels(resp.models)
+        setModelsError(resp.error)
+      })
+      .catch((err) => {
+        if (!active) return
+        setAvailableModels([])
+        setModelsError(err instanceof Error ? err.message : 'Failed to load models')
+      })
+      .finally(() => {
+        if (active) setModelsLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [form.llm_provider])
+
+  const modelOptions = Array.from(
+    new Set([
+      ...availableModels,
+      form.deep_think_llm,
+      form.quick_think_llm,
+    ].filter(Boolean)),
+  )
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,7 +87,15 @@ export default function SettingsForm() {
           <label className="block text-xs mb-2 capitalize" style={{ color: 'var(--text-mid)' }}>
             llm provider
           </label>
-          <select className="vault-input" value={form.llm_provider} onChange={(e) => set('llm_provider', e.target.value)}>
+          <select
+            className="vault-input"
+            value={form.llm_provider}
+            onChange={(e) => {
+              setModelsLoading(true)
+              setModelsError(null)
+              set('llm_provider', e.target.value)
+            }}
+          >
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
             <option value="google">Google</option>
@@ -66,13 +106,31 @@ export default function SettingsForm() {
             <label className="block text-xs mb-2 capitalize" style={{ color: 'var(--text-mid)' }}>
               {key.replace(/_/g, ' ')}
             </label>
-            <input
+            <select
               className="vault-input"
               value={form[key]}
               onChange={(e) => set(key, e.target.value)}
-            />
+              disabled={modelsLoading && modelOptions.length === 0}
+            >
+              {modelOptions.length === 0 ? (
+                <option value={form[key]}>
+                  {modelsLoading ? 'Loading models...' : 'No models available'}
+                </option>
+              ) : (
+                modelOptions.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))
+              )}
+            </select>
           </div>
         ))}
+        {modelsError && (
+          <p className="text-xs" style={{ color: 'var(--hold)' }}>
+            Model list: {modelsError}
+          </p>
+        )}
       </Panel>
 
       <Panel title="Analysis Parameters" subtitle="Discussion depth controls">
