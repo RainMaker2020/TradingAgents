@@ -39,6 +39,7 @@ _PROVIDER_CONFIG = {
     "xai": ("https://api.x.ai/v1", "XAI_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
+    "deepseek": ("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
 }
 
 
