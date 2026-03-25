@@ -12,3 +12,10 @@ export const DEFAULT_WORKSPACE_SETTINGS = {
   max_debate_rounds: 1,
   max_risk_discuss_rounds: 1,
 } as const
+
+export const PROVIDER_MODEL_DEFAULTS: Record<string, { deep: string; quick: string }> = {
+  openai:    { deep: 'gpt-5.2',           quick: 'gpt-5-mini' },
+  anthropic: { deep: 'claude-opus-4-6',   quick: 'claude-haiku-4-5' },
+  google:    { deep: 'gemini-2.5-pro',    quick: 'gemini-2.5-flash' },
+  deepseek:  { deep: 'deepseek-reasoner', quick: 'deepseek-chat' },
+}

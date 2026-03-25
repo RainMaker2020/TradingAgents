@@ -4,7 +4,7 @@ import { getProviderModels, getSettings, updateSettings } from '@/lib/api-client
 import type { SettingsFormState } from '../types'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar from '@/components/dashboard/Toolbar'
-import { DEFAULT_WORKSPACE_SETTINGS, RUN_LIMITS } from '@/lib/defaults'
+import { DEFAULT_WORKSPACE_SETTINGS, PROVIDER_MODEL_DEFAULTS, RUN_LIMITS } from '@/lib/defaults'
 
 const DEFAULTS: SettingsFormState = { ...DEFAULT_WORKSPACE_SETTINGS }
 
@@ -91,14 +91,22 @@ export default function SettingsForm() {
             className="vault-input"
             value={form.llm_provider}
             onChange={(e) => {
+              const id = e.target.value
+              const defaults = PROVIDER_MODEL_DEFAULTS[id] ?? PROVIDER_MODEL_DEFAULTS['openai']
               setModelsLoading(true)
               setModelsError(null)
-              set('llm_provider', e.target.value)
+              setForm((f) => ({
+                ...f,
+                llm_provider: id,
+                deep_think_llm: defaults.deep,
+                quick_think_llm: defaults.quick,
+              }))
             }}
           >
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
             <option value="google">Google</option>
+            <option value="deepseek">DeepSeek</option>
           </select>
         </div>
         {(['deep_think_llm', 'quick_think_llm'] as const).map((key) => (
