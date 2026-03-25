@@ -320,3 +320,35 @@ def test_replay_defaults_to_zero_tokens_when_missing(service, store):
     complete = next(e for e in events if e["event"] == "agent:complete")
     assert complete["data"]["tokens_in"] == 0
     assert complete["data"]["tokens_out"] == 0
+
+
+def test_pipeline_continues_after_sse_disconnect(service, store):
+    """When the SSE connection closes mid-run (client navigates away), the background
+    pipeline thread must continue and write all results to the store — no freezing."""
+    import time as real_time
+
+    config = RunConfig(ticker="NVDA", date="2026-03-23")
+    run = store.create(config)
+
+    with patch("api.services.run_service.TradingAgentsGraph") as MockGraph:
+        MockGraph.return_value = _mock_graph(
+            [("market_analyst", "bullish"), ("news_analyst", "stable")],
+            decision="BUY",
+        )
+        with patch("api.services.run_service.time"):  # no-op sleep → fast polling
+            gen = service.stream_events(run.id)
+            next(gen)    # advance past thread start, receive first event
+            gen.close()  # simulate client disconnect
+
+        # Wait for the pipeline thread to finish (still inside MockGraph patch context)
+        deadline = real_time.time() + 2.0
+        while real_time.time() < deadline:
+            if store.get(run.id).status != RunStatus.RUNNING:
+                break
+            real_time.sleep(0.05)
+
+    final = store.get(run.id)
+    assert final.status == RunStatus.COMPLETE, "Pipeline froze after SSE disconnect"
+    assert "market_analyst:0" in final.reports
+    assert "news_analyst:0" in final.reports
+    assert final.decision == "BUY"
