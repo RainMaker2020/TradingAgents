@@ -30,6 +30,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   const stepEntries = Object.entries(steps)
   const completedSteps = stepEntries.filter(([, value]) => value === 'done').length
   const runningSteps = stepEntries.filter(([, value]) => value === 'running').length
+  const chiefReports = reports['chief_analyst'] ?? []
+  const chiefRawReport = chiefReports[chiefReports.length - 1]
 
   const highestTokenStep = useMemo(() => {
     const leader = Object.entries(tokensByStep).sort((a, b) => {
@@ -126,6 +128,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             status={steps['chief_analyst']}
             ticker={ticker ?? ''}
             date={date ?? ''}
+            reports={reports}
+            chiefRawReport={chiefRawReport}
           />
 
           {/* Pipeline */}
