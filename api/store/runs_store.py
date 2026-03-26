@@ -187,3 +187,46 @@ class RunsStore:
                 (run_id,),
             )
             self._conn.commit()
+
+    def try_abort_run(self, run_id: str) -> bool:
+        """Atomically transition QUEUED or RUNNING → ABORTED.
+
+        Returns True if the transition happened, False if already terminal.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE runs SET status = ? WHERE id = ? AND status IN (?, ?)",
+                (RunStatus.ABORTED.value, run_id,
+                 RunStatus.QUEUED.value, RunStatus.RUNNING.value),
+            )
+            aborted = cursor.rowcount > 0
+            self._conn.commit()
+        return aborted
+
+    def try_complete_run(self, run_id: str, decision: str) -> bool:
+        """Atomically transition RUNNING → COMPLETE with decision.
+
+        Returns False (no-op) if status is not RUNNING — prevents overwriting ABORTED.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE runs SET status = ?, decision = ? WHERE id = ? AND status = ?",
+                (RunStatus.COMPLETE.value, decision, run_id, RunStatus.RUNNING.value),
+            )
+            completed = cursor.rowcount > 0
+            self._conn.commit()
+        return completed
+
+    def try_error_run(self, run_id: str, error: str) -> bool:
+        """Atomically transition RUNNING → ERROR with error message.
+
+        Returns False (no-op) if status is not RUNNING — prevents overwriting ABORTED.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE runs SET status = ?, error = ? WHERE id = ? AND status = ?",
+                (RunStatus.ERROR.value, error, run_id, RunStatus.RUNNING.value),
+            )
+            errored = cursor.rowcount > 0
+            self._conn.commit()
+        return errored

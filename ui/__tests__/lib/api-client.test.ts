@@ -23,6 +23,6 @@ test('createRun POSTs to /api/runs and returns run summary', async () => {
 test('listRuns GETs /api/runs', async () => {
   ;(fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => [] })
   const result = await listRuns()
-  expect(fetch).toHaveBeenCalledWith('/api/runs')
+  expect(fetch).toHaveBeenCalledWith('/api/runs', expect.objectContaining({ headers: undefined }))
   expect(Array.isArray(result)).toBe(true)
 })

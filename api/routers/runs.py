@@ -28,6 +28,15 @@ def get_run(run_id: str):
     return run
 
 
+@router.post("/{run_id}/abort")
+def abort_run(run_id: str):
+    run = _store.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    aborted = _service.abort_run(run_id)
+    return {"status": "aborted" if aborted else "no_op"}
+
+
 @router.get("/{run_id}/stream")
 def stream_run(run_id: str):
     run = _store.get(run_id)

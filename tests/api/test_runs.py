@@ -21,3 +21,31 @@ async def test_list_runs_empty_initially():
         response = await client.get("/api/runs")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+@pytest.mark.asyncio
+async def test_abort_run_returns_aborted():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Create a run
+        create_resp = await client.post("/api/runs", json={"ticker": "NVDA", "date": "2026-03-25"})
+        run_id = create_resp.json()["id"]
+        # Abort it (still QUEUED)
+        abort_resp = await client.post(f"/api/runs/{run_id}/abort")
+    assert abort_resp.status_code == 200
+    assert abort_resp.json()["status"] == "aborted"
+
+@pytest.mark.asyncio
+async def test_abort_run_noop_for_unknown_run():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/runs/nonexistent/abort")
+    assert resp.status_code == 404
+
+@pytest.mark.asyncio
+async def test_abort_run_noop_for_complete():
+    from api.store.shared import store as _store
+    from api.models.run import RunConfig, RunStatus
+    run = _store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    _store.update_status(run.id, RunStatus.COMPLETE)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(f"/api/runs/{run.id}/abort")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "no_op"

@@ -8,6 +8,7 @@ class RunStatus(str, Enum):
     RUNNING = "running"
     COMPLETE = "complete"
     ERROR = "error"
+    ABORTED = "aborted"
 
 
 class RunConfig(BaseModel):

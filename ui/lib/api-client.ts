@@ -50,3 +50,6 @@ export const getProviderModels = (provider: string): Promise<ProviderModels> =>
 
 export const getRunStreamUrl = (id: string): string =>
   `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/runs/${id}/stream`
+
+export const abortRun = (id: string): Promise<{ status: string }> =>
+  apiFetch(`/api/runs/${id}/abort`, { method: 'POST' })
