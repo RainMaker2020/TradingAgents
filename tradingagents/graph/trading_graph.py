@@ -382,6 +382,13 @@ class TradingAgentsGraph:
             step_key = _NODE_TO_STEP[node_name]
             report = TradingAgentsGraph._extract_report(step_key, update)
 
+            # Analyst nodes fire twice in a tool-calling loop: once to decide which
+            # tools to call (report is empty), then again after tools run to write the
+            # final report. Skip the intermediate empty-report firing so the store and
+            # frontend only receive the completed report.
+            if not report:
+                continue
+
             yield step_key, report
 
         # Post-loop: fetch the complete final state snapshot (all fields populated).

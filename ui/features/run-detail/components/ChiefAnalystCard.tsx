@@ -5,6 +5,7 @@ import type { ChiefAnalystReport } from '@/lib/types/agents'
 import type { StepStatus } from '@/lib/types/agents'
 import type { AgentStep } from '@/lib/types/run'
 import { deriveChiefReportViewModel } from './chiefReportDerivation'
+import ChiefAnalystPdfReport from './ChiefAnalystPdfReport'
 
 type Props = {
   report: ChiefAnalystReport | null
@@ -19,19 +20,6 @@ const VERDICT_COLOR: Record<string, string> = {
   BUY: '#087f5b',
   SELL: '#b42318',
   HOLD: '#b54708',
-}
-
-const SECTION_LABEL_STYLE = {
-  fontFamily: 'var(--font-mono)',
-  fontSize: '11px',
-  letterSpacing: '0.1em',
-  color: '#5f6c83',
-  textTransform: 'uppercase' as const,
-}
-
-const PAGE_BREAK_AVOID = {
-  breakInside: 'avoid' as const,
-  pageBreakInside: 'avoid' as const,
 }
 
 export default function ChiefAnalystCard({ report, status, ticker, date, reports, chiefRawReport }: Props) {
@@ -143,147 +131,126 @@ export default function ChiefAnalystCard({ report, status, ticker, date, reports
       )}
 
       {status === 'done' && report && vm && (
-        <div
-          ref={targetRef}
-          className="px-6 py-5 space-y-6"
-          style={{ background: '#fdfefe', color: '#243042' }}
-        >
-          <div
-            className="flex items-center justify-between"
-            style={{ ...PAGE_BREAK_AVOID, border: '1px solid #e2e8f3', borderRadius: '10px', background: '#f7f9fd', padding: '8px 12px' }}
-          >
-            <span style={{ ...SECTION_LABEL_STYLE, fontSize: '10px', color: '#4b607d' }}>Ticker · {ticker || 'N/A'}</span>
-            <span style={{ ...SECTION_LABEL_STYLE, fontSize: '10px', color: '#4b607d' }}>As Of · {date || 'N/A'}</span>
-          </div>
-
-          {/* Verdict + Time Horizon */}
-          <div className="grid grid-cols-1 md:grid-cols-[auto,1fr] gap-6 items-start" style={PAGE_BREAK_AVOID}>
-            <div className="flex flex-col gap-2">
-              <div style={SECTION_LABEL_STYLE}>Verdict</div>
-              <div
-                className="px-5 py-2 rounded-lg font-bold w-fit"
-                style={{
-                  fontFamily: 'var(--font-syne)',
-                  fontSize: '28px',
-                  letterSpacing: '-0.02em',
-                  color: VERDICT_COLOR[report.verdict] ?? '#243042',
-                  border: `1px solid ${VERDICT_COLOR[report.verdict] ?? '#243042'}40`,
-                  background: '#ffffff',
-                }}
-              >
-                {report.verdict}
+        <>
+          <div className="px-6 py-5 space-y-5" style={{ color: 'var(--text-primary)' }}>
+            <div
+              className="grid grid-cols-1 md:grid-cols-[auto,1fr] gap-4 items-start"
+              style={{
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid var(--border)',
+                borderRadius: '12px',
+                padding: '12px 14px',
+              }}
+            >
+              <div className="space-y-2">
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Verdict
+                </div>
+                <div
+                  className="px-4 py-1.5 rounded-lg font-bold w-fit"
+                  style={{
+                    fontFamily: 'var(--font-syne)',
+                    fontSize: '24px',
+                    color: VERDICT_COLOR[report.verdict] ?? 'var(--text-primary)',
+                    border: `1px solid ${VERDICT_COLOR[report.verdict] ?? '#8da2c0'}70`,
+                    background: `${VERDICT_COLOR[report.verdict] ?? '#8da2c0'}1A`,
+                  }}
+                >
+                  {report.verdict}
+                </div>
               </div>
-            </div>
-
-            <div>
-              <div style={SECTION_LABEL_STYLE}>Time Horizon</div>
-              <div className="mt-1.5">
-                <p style={{ fontFamily: 'var(--font-syne)', fontSize: '24px', color: '#1f2f44', letterSpacing: '-0.01em' }}>
+              <div className="space-y-2">
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Time Horizon
+                </div>
+                <p style={{ fontFamily: 'var(--font-syne)', fontSize: '22px', color: 'var(--text-primary)', lineHeight: 1.2 }}>
                   {vm.timeHorizon}
                 </p>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#5f6c83', marginTop: '4px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.09em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
                   Confidence: {vm.timeHorizonConfidence}
                 </p>
               </div>
             </div>
-          </div>
 
-          <section style={PAGE_BREAK_AVOID}>
-            <div style={SECTION_LABEL_STYLE}>Catalyst Thesis</div>
-            <p style={{ fontFamily: 'var(--font-manrope)', fontSize: '15px', color: '#2b3648', lineHeight: 1.72, marginTop: '6px' }}>
-              {report.catalyst}
-            </p>
-          </section>
+            <section>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                Catalyst Thesis
+              </div>
+              <p style={{ fontFamily: 'var(--font-manrope)', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.65, marginTop: '6px' }}>
+                {report.catalyst}
+              </p>
+            </section>
 
-          <div style={{ height: '1px', background: '#dde5f1' }} />
-
-          {/* Scenario Matrix */}
-          <section style={PAGE_BREAK_AVOID}>
-            <div style={SECTION_LABEL_STYLE}>Scenario Matrix</div>
-            <div className="mt-2 overflow-x-auto">
-              <table className="w-full text-left" style={{ borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                <colgroup>
-                  <col style={{ width: '16%' }} />
-                  <col style={{ width: '42%' }} />
-                  <col style={{ width: '42%' }} />
-                </colgroup>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #d5dbe7' }}>
-                    <th style={{ ...SECTION_LABEL_STYLE, fontSize: '10px', padding: '8px 6px', color: '#445269' }}>Scenario</th>
-                    <th style={{ ...SECTION_LABEL_STYLE, fontSize: '10px', padding: '8px 6px', color: '#445269' }}>Thesis</th>
-                    <th style={{ ...SECTION_LABEL_STYLE, fontSize: '10px', padding: '8px 6px', color: '#445269' }}>Trigger / Condition</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vm.scenarioMatrix.map((row) => (
-                    <tr key={row.name} style={{ borderBottom: '1px solid #e7ecf4' }}>
-                      <td style={{ padding: '10px 6px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#324661', letterSpacing: '0.04em' }}>
-                        {row.name.toUpperCase()}
-                      </td>
-                      <td style={{ padding: '10px 6px', fontFamily: 'var(--font-manrope)', fontSize: '14px', color: '#2b3648', lineHeight: 1.6 }}>
-                        {row.thesis}
-                      </td>
-                      <td style={{ padding: '10px 6px', fontFamily: 'var(--font-manrope)', fontSize: '14px', color: '#2b3648', lineHeight: 1.6 }}>
-                        {row.trigger}
-                      </td>
+            <section>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                Scenario Matrix
+              </div>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-left" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase', padding: '8px 6px' }}>Scenario</th>
+                      <th style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase', padding: '8px 6px' }}>Thesis</th>
+                      <th style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase', padding: '8px 6px' }}>Trigger / Condition</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                  </thead>
+                  <tbody>
+                    {vm.scenarioMatrix.map((row) => (
+                      <tr key={row.name} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px 6px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-primary)' }}>{row.name.toUpperCase()}</td>
+                        <td style={{ padding: '8px 6px', fontFamily: 'var(--font-manrope)', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.55 }}>{row.thesis}</td>
+                        <td style={{ padding: '8px 6px', fontFamily: 'var(--font-manrope)', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.55 }}>{row.trigger}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
-          <div style={{ height: '1px', background: '#dde5f1' }} />
+            <section className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Execution Notes
+                </div>
+                <p style={{ fontFamily: 'var(--font-manrope)', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.65, marginTop: '6px' }}>
+                  {report.execution}
+                </p>
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.12em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                  Risk Notes
+                </div>
+                <p style={{ fontFamily: 'var(--font-manrope)', fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.65, marginTop: '6px' }}>
+                  {report.tail_risk}
+                </p>
+              </div>
+            </section>
 
-          <div
-            className="inline-flex items-center rounded-full px-2.5 py-1"
-            style={{
-              ...SECTION_LABEL_STYLE,
-              fontSize: '9px',
-              color: '#4a5e7a',
-              background: '#f1f5fb',
-              border: '1px solid #d7e0ee',
-            }}
-          >
-            Page 2 · Detailed Notes
+            <footer
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '11px',
+                color: 'var(--text-muted)',
+                letterSpacing: '0.04em',
+                lineHeight: 1.6,
+                borderTop: '1px solid var(--border)',
+                paddingTop: '10px',
+              }}
+            >
+              {vm.sourcesSummary}
+            </footer>
           </div>
 
-          {/* Execution and Risk notes */}
-          <section
-            className="grid grid-cols-1 md:grid-cols-2 gap-6"
-            style={{ breakBefore: 'page', pageBreakBefore: 'always', ...PAGE_BREAK_AVOID }}
-          >
-            <div>
-              <div style={SECTION_LABEL_STYLE}>Execution Notes</div>
-              <p style={{ fontFamily: 'var(--font-manrope)', fontSize: '14px', color: '#2b3648', lineHeight: 1.7, marginTop: '6px' }}>
-                {report.execution}
-              </p>
-            </div>
-            <div>
-              <div style={SECTION_LABEL_STYLE}>Risk Notes</div>
-              <p style={{ fontFamily: 'var(--font-manrope)', fontSize: '14px', color: '#2b3648', lineHeight: 1.7, marginTop: '6px' }}>
-                {report.tail_risk}
-              </p>
-            </div>
-          </section>
-
-          <div style={{ height: '1px', background: '#dde5f1' }} />
-
-          {/* Sources summary */}
-          <footer
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              color: '#607089',
-              letterSpacing: '0.04em',
-              lineHeight: 1.6,
-              breakInside: 'avoid',
-              pageBreakInside: 'avoid',
-            }}
-          >
-            {vm.sourcesSummary}
-          </footer>
-        </div>
+          <div style={{ position: 'fixed', left: '-10000px', top: 0, width: '1024px', zIndex: -1 }}>
+            <ChiefAnalystPdfReport
+              report={report}
+              vm={vm}
+              ticker={ticker}
+              date={date}
+              reportRef={targetRef}
+            />
+          </div>
+        </>
       )}
     </div>
   )
