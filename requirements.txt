@@ -20,3 +20,5 @@ typer
 questionary
 langchain_anthropic
 langchain-google-genai
+pytest==9.0.2
+pytest-asyncio==1.3.0
