@@ -114,6 +114,19 @@ def test_compatible_chat_defaults_method_to_function_calling():
     assert mock_wso.call_args.kwargs.get("method") == "function_calling"
 
 
+def test_deepseek_reasoner_defaults_to_json_mode():
+    # deepseek-reasoner (R1) does not support function_calling or tool_choice.
+    # with_structured_output must fall back to json_mode automatically.
+    instance = OpenAICompatibleChat(
+        model="deepseek-reasoner", base_url="https://api.deepseek.com/v1", api_key="fake",
+        provider="deepseek",
+    )
+    with patch.object(NormalizedChatOpenAI, "with_structured_output") as mock_wso:
+        mock_wso.return_value = MagicMock()
+        instance.with_structured_output(_Schema)
+    assert mock_wso.call_args.kwargs.get("method") == "json_mode"
+
+
 def test_compatible_chat_respects_explicit_method_override():
     # Callers can still override the method when the provider supports json_mode.
     instance = OpenAICompatibleChat(

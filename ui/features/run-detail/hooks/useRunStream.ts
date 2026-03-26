@@ -45,6 +45,13 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
       const dIn  = action.tokens_in  ?? 0
       const dOut = action.tokens_out ?? 0
       const prev = state.tokensByStep[action.step] ?? zeroTokens()
+      const existingStepReports = state.reports[action.step] ?? []
+      const turnIndex = Number.isInteger(action.turn) && action.turn >= 0
+        ? action.turn
+        : existingStepReports.length
+      const hasReportForTurn = typeof existingStepReports[turnIndex] === 'string'
+      const nextStepReports = [...existingStepReports]
+      nextStepReports[turnIndex] = action.report
 
       let chiefAnalystReport: ChiefAnalystReport | null = state.chiefAnalystReport
       if (action.step === 'chief_analyst') {
@@ -57,15 +64,16 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
         steps:   { ...state.steps,   [action.step]: 'done' },
         reports: {
           ...state.reports,
-          [action.step]: [...(state.reports[action.step] ?? []), action.report],
+          [action.step]: nextStepReports,
         },
         tokensByStep: {
           ...state.tokensByStep,
-          [action.step]: { in: prev.in + dIn, out: prev.out + dOut },
+          // Prevent double counting when duplicate completion events replay.
+          [action.step]: hasReportForTurn ? prev : { in: prev.in + dIn, out: prev.out + dOut },
         },
         tokensTotal: {
-          in:  state.tokensTotal.in  + dIn,
-          out: state.tokensTotal.out + dOut,
+          in:  hasReportForTurn ? state.tokensTotal.in  : state.tokensTotal.in  + dIn,
+          out: hasReportForTurn ? state.tokensTotal.out : state.tokensTotal.out + dOut,
         },
         chiefAnalystReport,
       }

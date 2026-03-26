@@ -55,6 +55,15 @@ VALID_MODELS = {
     ],
 }
 
+# Blocklist of models that do not support function calling / tool_choice.
+# Add an entry here whenever a provider releases a reasoning-only or
+# restricted model that rejects the `tools` parameter at the API level.
+# ollama and openrouter are intentionally absent — their model namespaces
+# are open-ended and cannot be statically enumerated.
+_NO_FUNCTION_CALLING_MODELS = {
+    "deepseek": {"deepseek-reasoner"},
+}
+
 
 def validate_model(provider: str, model: str) -> bool:
     """Check if model name is valid for the given provider.
@@ -70,3 +79,17 @@ def validate_model(provider: str, model: str) -> bool:
         return True
 
     return model in VALID_MODELS[provider_lower]
+
+
+def supports_function_calling(provider: str, model: str) -> bool:
+    """Return whether provider/model supports tool/function calling."""
+    provider_lower = provider.lower()
+    blocked = _NO_FUNCTION_CALLING_MODELS.get(provider_lower, set())
+    return model not in blocked
+
+
+def structured_output_method(provider: str, model: str) -> str:
+    """Return safe default method for with_structured_output."""
+    if not supports_function_calling(provider, model):
+        return "json_mode"
+    return "function_calling"

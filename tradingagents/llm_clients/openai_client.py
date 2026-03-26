@@ -2,9 +2,10 @@ import os
 from typing import Any, Optional
 
 from langchain_openai import ChatOpenAI
+from pydantic import PrivateAttr
 
 from .base_client import BaseLLMClient
-from .validators import validate_model
+from .validators import structured_output_method, validate_model
 
 
 class NormalizedChatOpenAI(ChatOpenAI):
@@ -55,9 +56,16 @@ class OpenAICompatibleChat(NormalizedChatOpenAI):
     LangChain's default of json_schema.
     """
 
+    _provider: str = PrivateAttr(default="openai")
+
+    def __init__(self, *args, provider: str = "openai", **kwargs):
+        super().__init__(*args, **kwargs)
+        self._provider = provider.lower()
+
     def with_structured_output(self, schema, *, method=None, include_raw=False, strict=None, tools=None, **kwargs):
         if method is None:
-            method = "function_calling"
+            # Use provider/model capability map for safe defaults.
+            method = structured_output_method(self._provider, self.model or "")
         return super().with_structured_output(schema, method=method, include_raw=include_raw, strict=strict, tools=tools, **kwargs)
 
 
@@ -110,7 +118,7 @@ class OpenAIClient(BaseLLMClient):
 
         # Non-native providers (DeepSeek, xAI, OpenRouter, Ollama): use the
         # compatible wrapper that defaults structured output to function_calling.
-        return OpenAICompatibleChat(**llm_kwargs)
+        return OpenAICompatibleChat(provider=self.provider, **llm_kwargs)
 
     def validate_model(self) -> bool:
         """Validate model for the provider."""

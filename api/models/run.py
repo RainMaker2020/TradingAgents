@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from tradingagents.llm_clients.validators import supports_function_calling, validate_model
 
 
 class RunStatus(str, Enum):
@@ -23,6 +25,24 @@ class RunConfig(BaseModel):
         default=["market", "news", "fundamentals", "social"],
         min_length=1,
     )
+
+    @model_validator(mode="after")
+    def validate_llm_combo(self):
+        provider = self.llm_provider.lower()
+        if not validate_model(provider, self.deep_think_llm):
+            raise ValueError(f"Unsupported deep_think_llm '{self.deep_think_llm}' for provider '{provider}'")
+        if not validate_model(provider, self.quick_think_llm):
+            raise ValueError(f"Unsupported quick_think_llm '{self.quick_think_llm}' for provider '{provider}'")
+
+        # Analyst nodes call bind_tools() via quick_think_llm, so it must support function
+        # calling. deep_think_llm is not checked here because its nodes (research_manager,
+        # risk_manager) use plain invoke(), and chief_analyst uses with_structured_output()
+        # which already falls back to json_mode for non-function-calling models.
+        if not supports_function_calling(provider, self.quick_think_llm):
+            raise ValueError(
+                f"quick_think_llm '{self.quick_think_llm}' does not support function calling for provider '{provider}'"
+            )
+        return self
 
 
 class RunSummary(BaseModel):

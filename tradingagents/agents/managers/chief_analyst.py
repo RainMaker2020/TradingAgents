@@ -46,10 +46,10 @@ def create_chief_analyst(llm):
 
 ---
 
-Produce a concise executive summary with exactly these four fields:
+Produce a concise executive summary as a JSON object with exactly these four fields:
 
 - verdict: The final trade decision — must be exactly "BUY", "SELL", or "HOLD".
-- catalyst: The 1–3 strongest data points driving this verdict (drawn from market, news, or fundamentals). Be specific and concrete.
+- catalyst: A single string summarising the 1–3 strongest data points driving this verdict (drawn from market, news, or fundamentals). Be specific and concrete. Must be a string, not a list.
 - execution: A brief summary of the trader's entry/exit strategy. What is the plan?
 - tail_risk: The single most significant unmitigated risk identified by the Risk Judge. What could make this trade go wrong?
 

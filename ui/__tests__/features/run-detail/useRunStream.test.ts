@@ -153,6 +153,44 @@ test('missing tokens_in/out in AGENT_COMPLETE defaults to 0', async () => {
   expect(result.current.tokensTotal).toEqual({ in: 0, out: 0 })
 })
 
+test('duplicate AGENT_COMPLETE for same turn is ignored', async () => {
+  const { getRun } = jest.requireMock('@/lib/api-client')
+  const { createSSEConnection } = jest.requireMock('@/lib/sse')
+  jest.clearAllMocks()
+
+  getRun.mockResolvedValueOnce({
+    id: 'dup1', ticker: 'AAPL', date: '2026-03-23', status: 'queued',
+    decision: null, created_at: '2026-03-23T00:00:00Z',
+    config: null, reports: {}, error: null, token_usage: null,
+  })
+
+  createSSEConnection.mockImplementationOnce(
+    (_url: string, handlers: Record<string, (d: unknown) => void>) => {
+      setTimeout(() => {
+        handlers.onAgentStart?.({ step: 'market_analyst', turn: 0 })
+        handlers.onAgentComplete?.({
+          step: 'market_analyst', turn: 0, report: 'same report',
+          tokens_in: 100, tokens_out: 50,
+        })
+        // Replay/duplicate event for same step + turn
+        handlers.onAgentComplete?.({
+          step: 'market_analyst', turn: 0, report: 'same report',
+          tokens_in: 100, tokens_out: 50,
+        })
+        handlers.onRunComplete?.({ decision: 'HOLD', run_id: 'dup1' })
+      }, 0)
+      return jest.fn()
+    }
+  )
+
+  const { result } = renderHook(() => useRunStream('dup1'))
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+  expect(result.current.reports['market_analyst']).toEqual(['same report'])
+  expect(result.current.tokensByStep['market_analyst']).toEqual({ in: 100, out: 50 })
+  expect(result.current.tokensTotal).toEqual({ in: 100, out: 50 })
+})
+
 test('completed-run hydration populates tokens from getRun().token_usage without SSE', async () => {
   const { getRun } = jest.requireMock('@/lib/api-client')
   const { createSSEConnection } = jest.requireMock('@/lib/sse')
