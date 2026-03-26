@@ -119,3 +119,43 @@ def test_clear_token_usage_does_not_affect_reports(tmp_path):
     fetched = store.get(run.id)
     assert fetched.reports == {"market_analyst:0": "bullish"}
     assert fetched.token_usage == {}
+
+
+def test_run_id_is_12_chars(tmp_path):
+    """IDs must be 12 hex chars to reduce birthday-collision probability."""
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
+    assert len(run.id) == 12
+
+
+def test_try_claim_run_succeeds_for_queued(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
+    assert store.get(run.id).status == RunStatus.QUEUED
+    claimed = store.try_claim_run(run.id)
+    assert claimed is True
+    assert store.get(run.id).status == RunStatus.RUNNING
+
+
+def test_try_claim_run_succeeds_for_error(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
+    store.set_error(run.id, "previous failure")
+    claimed = store.try_claim_run(run.id)
+    assert claimed is True
+    assert store.get(run.id).status == RunStatus.RUNNING
+
+
+def test_try_claim_run_fails_for_already_running(tmp_path):
+    """Second claim attempt returns False — run is already owned."""
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
+    assert store.try_claim_run(run.id) is True   # first caller wins
+    assert store.try_claim_run(run.id) is False  # second caller loses
+
+
+def test_try_claim_run_fails_for_complete(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2026-03-23"))
+    store.update_status(run.id, RunStatus.COMPLETE)
+    assert store.try_claim_run(run.id) is False

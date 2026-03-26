@@ -7,7 +7,7 @@ import type { NewRunFormState } from '../types'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 import SegmentedControl from '@/components/dashboard/SegmentedControl'
-import { RUN_LIMITS } from '@/lib/defaults'
+import { RUN_LIMITS, PROVIDER_MODEL_DEFAULTS } from '@/lib/defaults'
 import { getProviderModels } from '@/lib/api-client'
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -167,15 +167,22 @@ export default function RunConfigForm() {
             <SegmentedControl
               ariaLabel="LLM provider"
               activeId={form.llm_provider}
-                onChange={(id) => {
-                  setModelsLoading(true)
-                  setModelsError(null)
-                  set('llm_provider', id)
-                }}
+              onChange={(id) => {
+                const defaults = PROVIDER_MODEL_DEFAULTS[id] ?? PROVIDER_MODEL_DEFAULTS['openai']
+                setModelsLoading(true)
+                setModelsError(null)
+                setForm((f) => ({
+                  ...f,
+                  llm_provider: id,
+                  deep_think_llm: defaults.deep,
+                  quick_think_llm: defaults.quick,
+                }))
+              }}
               segments={[
                 { id: 'openai', label: 'OpenAI' },
                 { id: 'anthropic', label: 'Anthropic' },
                 { id: 'google', label: 'Google' },
+                { id: 'deepseek', label: 'DeepSeek' },
               ]}
             />
           </div>

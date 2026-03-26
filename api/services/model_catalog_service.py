@@ -65,10 +65,24 @@ def _fetch_google_models() -> list[str]:
     return sorted(set(models))
 
 
+def _fetch_deepseek_models() -> list[str]:
+    api_key = _require_key("DEEPSEEK_API_KEY")
+    response = requests.get(
+        "https://api.deepseek.com/v1/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    models = [item.get("id", "") for item in payload.get("data", []) if item.get("id")]
+    return sorted(set(models))
+
+
 _FETCHERS: dict[str, Callable[[], list[str]]] = {
     "openai": _fetch_openai_models,
     "anthropic": _fetch_anthropic_models,
     "google": _fetch_google_models,
+    "deepseek": _fetch_deepseek_models,
 }
 
 

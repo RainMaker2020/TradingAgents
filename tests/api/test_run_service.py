@@ -1,4 +1,5 @@
 import pytest
+import threading
 from collections import defaultdict
 from unittest.mock import patch, MagicMock
 from api.services.run_service import RunService
@@ -160,7 +161,7 @@ def test_reconnect_to_running_run_replays_stored_events(service, store):
         return original_get(run_id)
 
     with patch.object(store, "get", side_effect=get_with_completion):
-        with patch("api.services.run_service.time"):  # skip sleep
+        with patch("api.services.run_service.time.sleep"):  # skip sleep
             with patch("api.services.run_service.TradingAgentsGraph") as MockGraph:
                 events = list(service.stream_events(run.id))
 
@@ -197,7 +198,7 @@ def test_reconnect_to_running_run_picks_up_new_events(service, store):
         return original_get(run_id)
 
     with patch.object(store, "get", side_effect=get_with_new_event):
-        with patch("api.services.run_service.time"):
+        with patch("api.services.run_service.time.sleep"):
             with patch("api.services.run_service.TradingAgentsGraph"):
                 events = list(service.stream_events(run.id))
 
@@ -224,7 +225,7 @@ def test_reconnect_to_running_run_emits_error_if_pipeline_fails(service, store):
         return original_get(run_id)
 
     with patch.object(store, "get", side_effect=get_with_error):
-        with patch("api.services.run_service.time"):
+        with patch("api.services.run_service.time.sleep"):
             with patch("api.services.run_service.TradingAgentsGraph"):
                 events = list(service.stream_events(run.id))
 
@@ -322,6 +323,56 @@ def test_replay_defaults_to_zero_tokens_when_missing(service, store):
     assert complete["data"]["tokens_out"] == 0
 
 
+def test_concurrent_sse_requests_start_only_one_pipeline(store):
+    """Two simultaneous SSE connections for the same QUEUED run must not launch
+    two pipelines — only the first caller that wins try_claim_run starts a thread.
+
+    Uses real threads and a barrier event to force genuine concurrency: t1 claims
+    the run and starts a slow pipeline, then t2 connects while the pipeline is still
+    running. Only one pipeline must be created; both streams must deliver run:complete.
+    """
+    config = RunConfig(ticker="NVDA", date="2026-03-23")
+    run = store.create(config)
+    service = RunService(store)
+
+    pipeline_start_count = 0
+    pipeline_started = threading.Event()
+    pipeline_proceed = threading.Event()
+
+    def slow_pipeline(run_id, cfg):
+        nonlocal pipeline_start_count
+        pipeline_start_count += 1
+        pipeline_started.set()
+        pipeline_proceed.wait(timeout=5)
+        store.update_status(run_id, RunStatus.COMPLETE)
+        store.update_decision(run_id, "BUY")
+
+    results = [None, None]
+
+    def run_stream(index):
+        with patch("api.services.run_service.TradingAgentsGraph"):
+            with patch("api.services.run_service.time.sleep"):
+                with patch.object(service, "_run_pipeline", side_effect=slow_pipeline):
+                    results[index] = list(service.stream_events(run.id))
+
+    t1 = threading.Thread(target=run_stream, args=(0,))
+    t1.start()
+    pipeline_started.wait(timeout=5)   # t1 has claimed run and started pipeline
+
+    t2 = threading.Thread(target=run_stream, args=(1,))
+    t2.start()                          # t2 connects while pipeline is running
+
+    pipeline_proceed.set()              # let the pipeline finish
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    assert not t1.is_alive(), "t1 timed out"
+    assert not t2.is_alive(), "t2 timed out"
+    assert pipeline_start_count == 1
+    assert any(e["event"] == "run:complete" for e in results[0])
+    assert any(e["event"] == "run:complete" for e in results[1])
+
+
 def test_pipeline_continues_after_sse_disconnect(service, store):
     """When the SSE connection closes mid-run (client navigates away), the background
     pipeline thread must continue and write all results to the store — no freezing."""
@@ -335,7 +386,7 @@ def test_pipeline_continues_after_sse_disconnect(service, store):
             [("market_analyst", "bullish"), ("news_analyst", "stable")],
             decision="BUY",
         )
-        with patch("api.services.run_service.time"):  # no-op sleep → fast polling
+        with patch("api.services.run_service.time.sleep"):  # no-op sleep → fast polling
             gen = service.stream_events(run.id)
             next(gen)    # advance past thread start, receive first event
             gen.close()  # simulate client disconnect

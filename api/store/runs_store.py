@@ -61,16 +61,23 @@ class RunsStore:
         )
 
     def create(self, config: RunConfig) -> RunResult:
-        run_id = str(uuid.uuid4())[:8]
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            self._conn.execute(
-                "INSERT INTO runs (id, ticker, date, status, created_at, config)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (run_id, config.ticker, config.date, RunStatus.QUEUED.value,
-                 now, config.model_dump_json()),
-            )
-            self._conn.commit()
+            for _ in range(5):
+                run_id = str(uuid.uuid4())[:12]
+                try:
+                    self._conn.execute(
+                        "INSERT INTO runs (id, ticker, date, status, created_at, config)"
+                        " VALUES (?, ?, ?, ?, ?, ?)",
+                        (run_id, config.ticker, config.date, RunStatus.QUEUED.value,
+                         now, config.model_dump_json()),
+                    )
+                    self._conn.commit()
+                    break
+                except sqlite3.IntegrityError:
+                    continue
+            else:
+                raise RuntimeError("Failed to generate a unique run ID after 5 attempts")
         return RunResult(
             id=run_id,
             ticker=config.ticker,
@@ -79,6 +86,23 @@ class RunsStore:
             created_at=now,
             config=config,
         )
+
+    def try_claim_run(self, run_id: str) -> bool:
+        """Atomically transition a run from QUEUED or ERROR to RUNNING.
+
+        Returns True if the claim succeeded (this caller owns the run),
+        False if another caller already claimed it (status was not QUEUED/ERROR).
+        Used to prevent double-pipeline execution on concurrent SSE reconnects.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE runs SET status = ? WHERE id = ? AND status IN (?, ?)",
+                (RunStatus.RUNNING.value, run_id,
+                 RunStatus.QUEUED.value, RunStatus.ERROR.value),
+            )
+            claimed = cursor.rowcount > 0
+            self._conn.commit()
+        return claimed
 
     def get(self, run_id: str) -> Optional[RunResult]:
         with self._lock:

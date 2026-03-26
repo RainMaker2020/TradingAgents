@@ -137,10 +137,16 @@ class RunService:
             yield from self._poll_events(run_id)
             return
 
-        # QUEUED or ERROR: (re)start pipeline in a background thread, then poll.
+        # QUEUED or ERROR: atomically claim the run before starting pipeline.
+        # try_claim_run does a single UPDATE ... WHERE status IN ('queued','error')
+        # so concurrent SSE requests can't both start a pipeline for the same run.
+        if not self._store.try_claim_run(run_id):
+            # Another caller already claimed it — just poll for its results.
+            yield from self._poll_events(run_id)
+            return
+
         self._store.clear_reports(run_id)
         self._store.clear_token_usage(run_id)
-        self._store.update_status(run_id, RunStatus.RUNNING)
 
         thread = threading.Thread(
             target=self._run_pipeline,

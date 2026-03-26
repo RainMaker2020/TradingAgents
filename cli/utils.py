@@ -157,6 +157,10 @@ def select_shallow_thinking_agent(provider) -> str:
             ("Grok 4 Fast (Non-Reasoning) - Speed optimized", "grok-4-fast-non-reasoning"),
             ("Grok 4.1 Fast (Reasoning) - High-performance, 2M ctx", "grok-4-1-fast-reasoning"),
         ],
+        "deepseek": [
+            ("DeepSeek Chat - Balanced speed and quality", "deepseek-chat"),
+            ("DeepSeek Reasoner - Strong reasoning model", "deepseek-reasoner"),
+        ],
         "openrouter": [
             ("NVIDIA Nemotron 3 Nano 30B (free)", "nvidia/nemotron-3-nano-30b-a3b:free"),
             ("Z.AI GLM 4.5 Air (free)", "z-ai/glm-4.5-air:free"),
@@ -224,6 +228,10 @@ def select_deep_thinking_agent(provider) -> str:
             ("Grok 4 Fast (Reasoning) - High-performance", "grok-4-fast-reasoning"),
             ("Grok 4.1 Fast (Non-Reasoning) - Speed optimized, 2M ctx", "grok-4-1-fast-non-reasoning"),
         ],
+        "deepseek": [
+            ("DeepSeek Reasoner - Strong reasoning model", "deepseek-reasoner"),
+            ("DeepSeek Chat - Balanced speed and quality", "deepseek-chat"),
+        ],
         "openrouter": [
             ("Z.AI GLM 4.5 Air (free)", "z-ai/glm-4.5-air:free"),
             ("NVIDIA Nemotron 3 Nano 30B (free)", "nvidia/nemotron-3-nano-30b-a3b:free"),
@@ -265,6 +273,7 @@ def select_llm_provider() -> tuple[str, str]:
         ("Google", "https://generativelanguage.googleapis.com/v1"),
         ("Anthropic", "https://api.anthropic.com/"),
         ("xAI", "https://api.x.ai/v1"),
+        ("DeepSeek", "https://api.deepseek.com/v1"),
         ("Openrouter", "https://openrouter.ai/api/v1"),
         ("Ollama", "http://localhost:11434/v1"),
     ]
