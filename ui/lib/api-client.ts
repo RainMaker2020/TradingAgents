@@ -4,6 +4,20 @@ import type { ProviderModels, RuntimeHealth, RuntimeSnapshot } from './types/sys
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ''
 
+export class ApiError extends Error {
+  status: number
+  path: string
+  detail?: unknown
+
+  constructor(message: string, status: number, path: string, detail?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.path = path
+    this.detail = detail
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
   const hasBody = ['POST', 'PUT', 'PATCH'].includes(method)
@@ -13,7 +27,19 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       ? { 'Content-Type': 'application/json', ...init?.headers }
       : init?.headers,
   })
-  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`)
+  if (!res.ok) {
+    let errorBody: unknown = undefined
+    try {
+      errorBody = await res.json()
+    } catch {
+      // Some endpoints may return non-JSON bodies on failure.
+    }
+    const detail =
+      typeof errorBody === 'object' && errorBody !== null && 'detail' in errorBody
+        ? (errorBody as { detail?: unknown }).detail
+        : undefined
+    throw new ApiError(`API error ${res.status}: ${path}`, res.status, path, detail)
+  }
   return res.json() as Promise<T>
 }
 

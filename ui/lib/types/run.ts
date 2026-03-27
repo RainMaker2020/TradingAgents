@@ -55,6 +55,13 @@ export const STEP_PHASE: Record<AgentStep, 'analysts' | 'researchers' | 'trader'
 
 export type RunStatus = 'queued' | 'running' | 'complete' | 'error' | 'aborted'
 
+export type SimulationConfig = {
+  initial_cash: number
+  slippage_bps: number
+  fee_per_trade: number
+  max_position_pct: number
+}
+
 export type RunConfig = {
   ticker: string
   date: string
@@ -64,6 +71,9 @@ export type RunConfig = {
   max_debate_rounds: number
   max_risk_discuss_rounds: number
   enabled_analysts?: string[]
+  simulation_config?: SimulationConfig
+  mode?: 'graph' | 'backtest'
+  end_date?: string | null
 }
 
 export type RunSummary = {

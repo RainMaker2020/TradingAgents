@@ -10,9 +10,16 @@ import SegmentedControl from '@/components/dashboard/SegmentedControl'
 import { RUN_LIMITS, PROVIDER_MODEL_DEFAULTS } from '@/lib/defaults'
 import { getProviderModels } from '@/lib/api-client'
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+function FieldLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode
+  htmlFor?: string
+}) {
   return (
     <label
+      htmlFor={htmlFor}
       className="block mb-1.5 text-[10px] font-bold uppercase tracking-widest"
       style={{ color: 'var(--text-mid)', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}
     >
@@ -23,13 +30,44 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 export default function RunConfigForm() {
   const [form, setForm] = useState<NewRunFormState>(DEFAULT_FORM)
+  const [simulationErrors, setSimulationErrors] = useState<
+    Partial<Record<'initial_cash' | 'slippage_bps' | 'fee_per_trade' | 'max_position_pct', string>>
+  >({})
   const [activePreset, setActivePreset] = useState<'fast' | 'balanced' | 'deep' | null>(null)
   const [modelsLoading, setModelsLoading] = useState(true)
   const [modelsError, setModelsError] = useState<string | null>(null)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const { submit, loading, error } = useRunSubmit()
-  const set = (k: keyof NewRunFormState, v: unknown) =>
+  const set = <K extends keyof NewRunFormState>(k: K, v: NewRunFormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }))
+
+  const parseNumericInput = (value: string): number =>
+    value.trim() === '' ? Number.NaN : Number(value)
+
+  const validateSimulationConfig = (
+    state: NewRunFormState,
+  ): Partial<Record<'initial_cash' | 'slippage_bps' | 'fee_per_trade' | 'max_position_pct', string>> => {
+    const errors: Partial<
+      Record<'initial_cash' | 'slippage_bps' | 'fee_per_trade' | 'max_position_pct', string>
+    > = {}
+    if (!Number.isFinite(state.initial_cash) || state.initial_cash <= 0) {
+      errors.initial_cash = 'Initial Cash ($) must be greater than 0.'
+    }
+    if (!Number.isFinite(state.slippage_bps) || state.slippage_bps < 0) {
+      errors.slippage_bps = 'Slippage (bps) must be 0 or greater.'
+    }
+    if (!Number.isFinite(state.fee_per_trade) || state.fee_per_trade < 0) {
+      errors.fee_per_trade = 'Fee Per Trade ($) must be 0 or greater.'
+    }
+    if (
+      !Number.isFinite(state.max_position_pct) ||
+      state.max_position_pct <= 0 ||
+      state.max_position_pct > 100
+    ) {
+      errors.max_position_pct = 'Max Position Size (%) must be between 0 and 100.'
+    }
+    return errors
+  }
 
   useEffect(() => {
     let active = true
@@ -75,10 +113,18 @@ export default function RunConfigForm() {
 
   const noAnalysts = form.enabled_analysts.length === 0
   const today = new Date().toISOString().slice(0, 10)
+  const hasSimulationErrors = Object.keys(simulationErrors).length > 0
 
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); submit(form) }}
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault()
+        const validationErrors = validateSimulationConfig(form)
+        setSimulationErrors(validationErrors)
+        if (Object.keys(validationErrors).length > 0) return
+        submit(form, setSimulationErrors)
+      }}
       className="space-y-3"
     >
       <Toolbar
@@ -129,8 +175,9 @@ export default function RunConfigForm() {
       >
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <FieldLabel>Ticker Symbol</FieldLabel>
+            <FieldLabel htmlFor="ticker-symbol">Ticker Symbol</FieldLabel>
             <input
+              id="ticker-symbol"
               className="vault-input terminal-text font-bold text-sm tracking-widest"
               placeholder="e.g. NVDA"
               value={form.ticker}
@@ -142,7 +189,7 @@ export default function RunConfigForm() {
             />
           </div>
           <div>
-            <FieldLabel>Trade Date</FieldLabel>
+            <FieldLabel htmlFor="trade-date">Trade Date</FieldLabel>
             <input
               id="trade-date"
               type="date"
@@ -271,6 +318,110 @@ export default function RunConfigForm() {
         />
       </Panel>
 
+      <Panel
+        title="Simulation Parameters"
+        subtitle="User-friendly units sent in simulation_config"
+      >
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <FieldLabel htmlFor="initial-cash">Initial Cash ($)</FieldLabel>
+            <input
+              id="initial-cash"
+              type="number"
+              min={1}
+              step="1"
+              className="vault-input terminal-text"
+              value={Number.isNaN(form.initial_cash) ? '' : form.initial_cash}
+              onChange={(e) => {
+                set('initial_cash', parseNumericInput(e.target.value))
+                if (simulationErrors.initial_cash) {
+                  setSimulationErrors((prev) => ({ ...prev, initial_cash: undefined }))
+                }
+              }}
+              required
+            />
+            {simulationErrors.initial_cash && (
+              <p className="text-[10px] mt-1" style={{ color: 'var(--error)', fontFamily: 'var(--font-mono)' }}>
+                {simulationErrors.initial_cash}
+              </p>
+            )}
+          </div>
+          <div>
+            <FieldLabel htmlFor="slippage-bps">Slippage (bps)</FieldLabel>
+            <input
+              id="slippage-bps"
+              type="number"
+              min={0}
+              step="0.1"
+              className="vault-input terminal-text"
+              value={Number.isNaN(form.slippage_bps) ? '' : form.slippage_bps}
+              onChange={(e) => {
+                set('slippage_bps', parseNumericInput(e.target.value))
+                if (simulationErrors.slippage_bps) {
+                  setSimulationErrors((prev) => ({ ...prev, slippage_bps: undefined }))
+                }
+              }}
+              required
+            />
+            {simulationErrors.slippage_bps && (
+              <p className="text-[10px] mt-1" style={{ color: 'var(--error)', fontFamily: 'var(--font-mono)' }}>
+                {simulationErrors.slippage_bps}
+              </p>
+            )}
+          </div>
+          <div>
+            <FieldLabel htmlFor="fee-per-trade">Fee Per Trade ($)</FieldLabel>
+            <input
+              id="fee-per-trade"
+              type="number"
+              min={0}
+              step="0.01"
+              className="vault-input terminal-text"
+              value={Number.isNaN(form.fee_per_trade) ? '' : form.fee_per_trade}
+              onChange={(e) => {
+                set('fee_per_trade', parseNumericInput(e.target.value))
+                if (simulationErrors.fee_per_trade) {
+                  setSimulationErrors((prev) => ({ ...prev, fee_per_trade: undefined }))
+                }
+              }}
+              required
+            />
+            {simulationErrors.fee_per_trade && (
+              <p className="text-[10px] mt-1" style={{ color: 'var(--error)', fontFamily: 'var(--font-mono)' }}>
+                {simulationErrors.fee_per_trade}
+              </p>
+            )}
+          </div>
+          <div>
+            <FieldLabel htmlFor="max-position-pct">Max Position Size (%)</FieldLabel>
+            <input
+              id="max-position-pct"
+              type="number"
+              min={0.01}
+              max={100}
+              step="0.01"
+              className="vault-input terminal-text"
+              value={Number.isNaN(form.max_position_pct) ? '' : form.max_position_pct}
+              onChange={(e) => {
+                set('max_position_pct', parseNumericInput(e.target.value))
+                if (simulationErrors.max_position_pct) {
+                  setSimulationErrors((prev) => ({ ...prev, max_position_pct: undefined }))
+                }
+              }}
+              required
+            />
+            {simulationErrors.max_position_pct && (
+              <p className="text-[10px] mt-1" style={{ color: 'var(--error)', fontFamily: 'var(--font-mono)' }}>
+                {simulationErrors.max_position_pct}
+              </p>
+            )}
+            <p className="text-[10px] mt-1" style={{ color: 'var(--text-low)', fontFamily: 'var(--font-mono)' }}>
+              Enter percent (example: 10 means 10%).
+            </p>
+          </div>
+        </div>
+      </Panel>
+
       {/* ── Submit ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between pt-1 px-1">
         <div
@@ -291,9 +442,9 @@ export default function RunConfigForm() {
         )}
         <button
           type="submit"
-          disabled={loading || noAnalysts}
+          disabled={loading || noAnalysts || hasSimulationErrors}
           className="btn-primary"
-          style={{ minWidth: '160px', justifyContent: 'center', opacity: noAnalysts ? 0.45 : 1 }}
+          style={{ minWidth: '160px', justifyContent: 'center', opacity: noAnalysts || hasSimulationErrors ? 0.45 : 1 }}
         >
           {loading ? (
             <>

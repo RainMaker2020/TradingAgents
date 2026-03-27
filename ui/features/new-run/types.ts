@@ -9,6 +9,10 @@ export type NewRunFormState = {
   max_debate_rounds: number
   max_risk_discuss_rounds: number
   enabled_analysts: string[]
+  initial_cash: number
+  slippage_bps: number
+  fee_per_trade: number
+  max_position_pct: number
 }
 
 export const DEFAULT_FORM: NewRunFormState = {
@@ -20,4 +24,8 @@ export const DEFAULT_FORM: NewRunFormState = {
   max_debate_rounds: DEFAULT_WORKSPACE_SETTINGS.max_debate_rounds,
   max_risk_discuss_rounds: DEFAULT_WORKSPACE_SETTINGS.max_risk_discuss_rounds,
   enabled_analysts: [...DEFAULT_ENABLED_ANALYSTS],
+  initial_cash: 100000,
+  slippage_bps: 5,
+  fee_per_trade: 1.0,
+  max_position_pct: 10,
 }

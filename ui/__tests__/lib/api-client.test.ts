@@ -15,8 +15,17 @@ test('createRun POSTs to /api/runs and returns run summary', async () => {
     llm_provider: 'openai', deep_think_llm: 'gpt-5.2',
     quick_think_llm: 'gpt-5-mini', max_debate_rounds: 1,
     max_risk_discuss_rounds: 1,
+    simulation_config: {
+      initial_cash: 100000,
+      slippage_bps: 5,
+      fee_per_trade: 1,
+      max_position_pct: 10, // percent, not ratio
+    },
   })
   expect(fetch).toHaveBeenCalledWith('/api/runs', expect.objectContaining({ method: 'POST' }))
+  const requestInit = (fetch as jest.Mock).mock.calls[0][1] as RequestInit
+  const body = JSON.parse(String(requestInit.body))
+  expect(body.simulation_config.max_position_pct).toBe(10)
   expect(result.id).toBe('abc123')
 })
 
