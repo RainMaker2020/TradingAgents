@@ -3,9 +3,10 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tradingagents.llm_clients.validators import supports_function_calling, validate_model
+from tradingagents.engine.schemas.orders import FillModel as _FillModel
 
-
-_VALID_FILL_MODELS = {"NEXT_OPEN", "SAME_CLOSE", "VWAP"}
+# Derived from FillModel enum — stays in sync automatically.
+_VALID_FILL_MODELS = {m.value for m in _FillModel}
 
 
 class SimulationConfigSchema(BaseModel):
@@ -60,7 +61,7 @@ class SimulationConfigSchema(BaseModel):
             "When set: total_fee = fee_per_trade + qty × price × fee_bps / 10000. "
             "Must be 0 or greater when provided."
         ),
-        examples=[None],
+        examples=[3.0],
     )
 
     # Percent field — normalized to ratio in engine

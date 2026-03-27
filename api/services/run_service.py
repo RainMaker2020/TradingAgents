@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 try:
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.default_config import DEFAULT_CONFIG
-    from tradingagents.engine.schemas.config_input import SimulationConfigInput
 except ImportError:
     TradingAgentsGraph = None  # type: ignore
     DEFAULT_CONFIG = {}
-    SimulationConfigInput = None  # type: ignore
+
+from tradingagents.engine.schemas.config import SimulationConfig
+from tradingagents.engine.schemas.config_input import SimulationConfigInput
 
 
 class RunService:
@@ -24,6 +25,32 @@ class RunService:
         self._store = store
         self._cancel_events: dict[str, threading.Event] = {}
         self._cancel_lock = threading.Lock()
+
+    @staticmethod
+    def _normalize_sim_config(config: RunConfig) -> SimulationConfig:
+        """Normalize user-facing SimulationConfigSchema to engine SimulationConfig.
+
+        SimulationConfigSchema (API layer) uses user-friendly units:
+          - max_position_pct as percent (10 = 10%)
+          - all Decimal fields as float/int
+
+        SimulationConfigInput converts to engine units:
+          - max_position_pct as ratio (0.10)
+          - all financial values as Decimal
+
+        API accepts percent; engine stores ratio.
+
+        This method is the single normalization point. It runs at service
+        entry (before any background thread is spawned) so validation errors
+        are caught early and ``SimulationConfig`` is ready for any execution
+        path — currently ``TradingAgentsGraph``, in future ``BacktestLoop``.
+        """
+        sim_schema = config.simulation_config
+        if sim_schema is not None:
+            return SimulationConfigInput(
+                **sim_schema.model_dump(exclude_none=True)
+            ).to_simulation_config()
+        return SimulationConfigInput().to_simulation_config()
 
     def abort_run(self, run_id: str) -> bool:
         """Write ABORTED to DB first (durable), then signal the pipeline thread."""
@@ -44,25 +71,18 @@ class RunService:
         next step starts; try_abort_run already wrote ABORTED so no terminal status is written.
         """
         try:
-            # ── Normalize simulation config at the service boundary ──────────
-            # SimulationConfigSchema (API layer) uses user-friendly units:
-            #   max_position_pct as percent (10 = 10%)
-            # SimulationConfigInput normalizes to engine units:
-            #   max_position_pct as ratio (0.10)
-            # Never pass percent values into the engine — only normalized ratios.
-            #
-            # Currently this run path uses TradingAgentsGraph; sim_cfg will be
-            # passed to BacktestLoop when that execution path is integrated.
-            if SimulationConfigInput is not None:
-                sim_schema = config.simulation_config
-                if sim_schema is not None:
-                    sim_cfg = SimulationConfigInput(
-                        **sim_schema.model_dump(exclude_none=True)
-                    ).to_simulation_config()
-                else:
-                    sim_cfg = SimulationConfigInput().to_simulation_config()
-            else:
-                sim_cfg = None
+            sim_cfg = self._normalize_sim_config(config)
+            logger.debug(
+                "run %s: normalized sim_cfg — cash=%s slippage=%sbps "
+                "max_pos=%s fee=%s",
+                run_id,
+                sim_cfg.initial_cash,
+                sim_cfg.slippage_bps,
+                sim_cfg.max_position_pct,   # ratio, e.g. 0.10
+                sim_cfg.fee_per_trade,
+            )
+            # TODO: pass sim_cfg to BacktestLoop when that execution path lands.
+            # Currently this run path uses TradingAgentsGraph (see ta.stream_propagate below).
 
             ta_config = DEFAULT_CONFIG.copy()
             ta_config["llm_provider"]            = config.llm_provider

@@ -189,6 +189,49 @@ class TestPassthroughFields:
 # ---------------------------------------------------------------------------
 
 
+class TestServiceNormalization:
+    """_normalize_sim_config produces the correct SimulationConfig for the engine."""
+
+    def _svc(self):
+        from api.services.run_service import RunService
+        from api.store.shared import store
+        return RunService(store)
+
+    def test_normalize_with_custom_schema(self):
+        from decimal import Decimal
+        svc = self._svc()
+        config = RunConfig(
+            ticker="AAPL", date="2024-01-02",
+            simulation_config={"initial_cash": 50000, "max_position_pct": 20},
+        )
+        sim_cfg = svc._normalize_sim_config(config)
+        assert sim_cfg.initial_cash == Decimal("50000")
+        assert sim_cfg.max_position_pct == Decimal("0.20")   # percent → ratio
+
+    def test_normalize_without_schema_uses_defaults(self):
+        from decimal import Decimal
+        svc = self._svc()
+        config = RunConfig(ticker="AAPL", date="2024-01-02")
+        sim_cfg = svc._normalize_sim_config(config)
+        assert sim_cfg.initial_cash == Decimal("100000")
+        assert sim_cfg.max_position_pct == Decimal("0.10")   # default 10% → 0.10
+
+    def test_normalize_never_leaks_percent_into_engine(self):
+        """Engine must always receive ratio, never percent."""
+        from decimal import Decimal
+        svc = self._svc()
+        for pct in [5, 10, 25, 50, 100]:
+            config = RunConfig(
+                ticker="AAPL", date="2024-01-02",
+                simulation_config={"max_position_pct": pct},
+            )
+            sim_cfg = svc._normalize_sim_config(config)
+            expected_ratio = Decimal(str(pct)) / Decimal("100")
+            assert sim_cfg.max_position_pct == expected_ratio, (
+                f"{pct}% should normalize to {expected_ratio}, got {sim_cfg.max_position_pct}"
+            )
+
+
 class TestValidation422:
     @pytest.mark.asyncio
     async def test_non_positive_cash_returns_422(self):
