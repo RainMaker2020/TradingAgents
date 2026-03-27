@@ -182,6 +182,22 @@ class RunConfig(BaseModel):
             "the engine receives the normalized ratio (0.10)."
         ),
     )
+    mode: Literal["graph", "backtest"] = Field(
+        default="graph",
+        description=(
+            "'graph' runs TradingAgentsGraph (LLM multi-agent analysis, default). "
+            "'backtest' runs BacktestLoop against cached CSV data using a "
+            "MA-crossover strategy and the normalized simulation_config."
+        ),
+    )
+    end_date: Optional[str] = Field(
+        default=None,
+        description=(
+            "End date for backtest mode (YYYY-MM-DD). "
+            "Defaults to date (single-day run) when omitted. "
+            "Ignored in graph mode."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_llm_combo(self):

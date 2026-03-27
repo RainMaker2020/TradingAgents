@@ -40,10 +40,8 @@ class RunService:
 
         API accepts percent; engine stores ratio.
 
-        This method is the single normalization point. It runs at service
-        entry (before any background thread is spawned) so validation errors
-        are caught early and ``SimulationConfig`` is ready for any execution
-        path — currently ``TradingAgentsGraph``, in future ``BacktestLoop``.
+        This is the single normalization point. Both ``graph`` and ``backtest``
+        execution paths receive the same normalized ``SimulationConfig``.
         """
         sim_schema = config.simulation_config
         if sim_schema is not None:
@@ -63,27 +61,46 @@ class RunService:
         return aborted
 
     def _run_pipeline(self, run_id: str, config: RunConfig, cancel_event: threading.Event) -> None:
-        """Background thread: executes the pipeline and writes results to SQLite.
+        """Dispatcher: normalize sim config once, then route to graph or backtest path.
 
-        Runs independently of any SSE connection — client disconnects do not
-        interrupt this thread. Checks cancel_event at the start of each iteration (after the step completes
-        its LLM call and report is written to the store). On abort, exits before the
-        next step starts; try_abort_run already wrote ABORTED so no terminal status is written.
+        Both paths receive the same normalized ``SimulationConfig`` so there is
+        exactly one contract and zero config drift between execution modes.
         """
         try:
             sim_cfg = self._normalize_sim_config(config)
             logger.debug(
-                "run %s: normalized sim_cfg — cash=%s slippage=%sbps "
-                "max_pos=%s fee=%s",
-                run_id,
-                sim_cfg.initial_cash,
-                sim_cfg.slippage_bps,
-                sim_cfg.max_position_pct,   # ratio, e.g. 0.10
+                "run %s [mode=%s]: sim_cfg cash=%s slippage=%sbps max_pos=%s fee=%s",
+                run_id, config.mode,
+                sim_cfg.initial_cash, sim_cfg.slippage_bps,
+                sim_cfg.max_position_pct,   # ratio (e.g. 0.10), never percent
                 sim_cfg.fee_per_trade,
             )
-            # TODO: pass sim_cfg to BacktestLoop when that execution path lands.
-            # Currently this run path uses TradingAgentsGraph (see ta.stream_propagate below).
+            if config.mode == "backtest":
+                self._run_backtest_pipeline(run_id, config, sim_cfg, cancel_event)
+            else:
+                self._run_graph_pipeline(run_id, config, sim_cfg, cancel_event)
+        except Exception as e:
+            # Safety net: sub-pipelines catch their own exceptions, but guard
+            # here in case normalization or dispatch itself fails.
+            self._store.try_error_run(run_id, str(e))
+        finally:
+            with self._cancel_lock:
+                self._cancel_events.pop(run_id, None)
 
+    def _run_graph_pipeline(
+        self,
+        run_id: str,
+        config: RunConfig,
+        sim_cfg: SimulationConfig,
+        cancel_event: threading.Event,
+    ) -> None:
+        """Graph execution path: TradingAgentsGraph (LLM multi-agent analysis).
+
+        ``sim_cfg`` is normalized and available here for future use (e.g. wiring
+        ``min_confidence_threshold`` into the graph config).  Currently the graph
+        uses its own defaults for these parameters.
+        """
+        try:
             ta_config = DEFAULT_CONFIG.copy()
             ta_config["llm_provider"]            = config.llm_provider
             ta_config["deep_think_llm"]          = config.deep_think_llm
@@ -104,7 +121,7 @@ class RunService:
 
             for step_key, report in ta.stream_propagate(config.ticker, config.date):
                 if cancel_event.is_set():
-                    return  # abort requested; ABORTED already in DB — don't write COMPLETE/ERROR
+                    return  # abort requested; ABORTED already in DB
                 tokens = token_handler.snapshot_and_reset()
                 turn = turn_counts[step_key]
                 self._store.add_report(run_id, f"{step_key}:{turn}", report)
@@ -119,9 +136,88 @@ class RunService:
 
         except Exception as e:
             self._store.try_error_run(run_id, str(e))
-        finally:
-            with self._cancel_lock:
-                self._cancel_events.pop(run_id, None)
+
+    def _run_backtest_pipeline(
+        self,
+        run_id: str,
+        config: RunConfig,
+        sim_cfg: SimulationConfig,
+        cancel_event: threading.Event,
+    ) -> None:
+        """Backtest execution path: BacktestLoop against cached CSV data.
+
+        Uses MA-crossover strategy (long-only, no LLM calls).  ``sim_cfg`` is
+        passed directly to BacktestLoop — cash, slippage, fees, and position
+        limits all come from the normalized engine config.
+        """
+        from datetime import date
+        from tradingagents.engine.adapters.csv_feed import CsvDataFeed
+        from tradingagents.engine.adapters.toy_strategy import MovingAverageCrossStrategy
+        from tradingagents.engine.runtime.backtest_loop import BacktestLoop
+        from tradingagents.engine.runtime.paper_portfolio import InMemoryPortfolio
+        from tradingagents.engine.runtime.simulator import ConcreteExecutionSimulator
+        from tradingagents.engine.runtime.risk_manager import ConcreteRiskManager
+        from tradingagents.engine.schemas.portfolio import BacktestEventType
+
+        try:
+            start = date.fromisoformat(config.date)
+            end = date.fromisoformat(config.end_date) if config.end_date else start
+
+            try:
+                feed = CsvDataFeed(config.ticker)
+            except FileNotFoundError as exc:
+                self._store.try_error_run(run_id, str(exc))
+                return
+
+            if cancel_event.is_set():
+                return
+
+            strategy = MovingAverageCrossStrategy(
+                short_window=5, long_window=20, confidence=0.8, long_only=True
+            )
+            result = BacktestLoop(
+                feed=feed,
+                strategy=strategy,
+                risk=ConcreteRiskManager(),
+                simulator=ConcreteExecutionSimulator(),
+                portfolio=InMemoryPortfolio(),
+                config=sim_cfg,          # ← normalized engine config, not percent values
+            ).run(config.ticker, start, end)
+
+            if cancel_event.is_set():
+                return
+
+            # Summarise result as a report for SSE replay
+            fills = [e for e in result.events if e.event_type == BacktestEventType.FILL_EXECUTED]
+            m = result.metrics
+            pnl = float(m.total_equity) - float(sim_cfg.initial_cash)
+            pnl_pct = pnl / float(sim_cfg.initial_cash) * 100
+            summary = (
+                f"Backtest: {config.ticker}  {start} → {end}\n"
+                f"Config:   cash=${float(sim_cfg.initial_cash):,.0f}  "
+                f"slippage={sim_cfg.slippage_bps}bps  "
+                f"fee=${sim_cfg.fee_per_trade}/trade  "
+                f"max_pos={float(sim_cfg.max_position_pct):.0%}\n"
+                f"\n"
+                f"Fills:         {len(fills)}\n"
+                f"Final equity:  ${float(m.total_equity):,.2f}  ({pnl_pct:+.2f}%)\n"
+                f"Unrealized P&L: ${float(m.unrealized_pnl):,.2f}\n"
+                f"Open positions: {dict(result.final_state.positions) or 'none'}\n"
+            )
+            self._store.add_report(run_id, "backtest_summary:0", summary)
+
+            # Derive a terminal decision from the final portfolio state
+            if result.final_state.positions:
+                decision = "BUY"   # still holding at least one position
+            elif fills:
+                decision = "SELL"  # all positions liquidated
+            else:
+                decision = "HOLD"  # no trades executed
+
+            self._store.try_complete_run(run_id, decision)
+
+        except Exception as e:
+            self._store.try_error_run(run_id, str(e))
 
     _MAX_POLL_SECONDS = 3600  # 1 hour wall-clock cap; prevents infinite hang on thread crash
 
