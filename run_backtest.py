@@ -24,7 +24,6 @@ benchmarking or CI until a direction-aware risk manager is implemented.
 from __future__ import annotations
 import argparse
 from datetime import date
-from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -38,7 +37,7 @@ from tradingagents.engine.runtime.backtest_loop import BacktestLoop
 from tradingagents.engine.runtime.paper_portfolio import InMemoryPortfolio
 from tradingagents.engine.runtime.simulator import ConcreteExecutionSimulator
 from tradingagents.engine.runtime.risk_manager import ConcreteRiskManager
-from tradingagents.engine.schemas.config import SimulationConfig
+from tradingagents.engine.schemas.config_input import SimulationConfigInput
 from tradingagents.engine.schemas.portfolio import BacktestEventType
 
 
@@ -48,14 +47,17 @@ def run(
     end: date,
     toy: bool = False,
     long_only: bool = True,
-    max_position_pct: float = 0.10,
+    initial_cash: float = 100_000,
+    slippage_bps: float = 5,
+    fee_per_trade: float = 1.0,
+    max_position_pct: float = 10,  # percent, e.g. 10 = 10%
 ) -> None:
-    config = SimulationConfig(
-        initial_cash=Decimal("100000"),
-        slippage_bps=Decimal("5"),
-        fee_per_trade=Decimal("1.0"),
-        max_position_pct=Decimal(str(max_position_pct)),
-    )
+    config = SimulationConfigInput(
+        initial_cash=initial_cash,
+        slippage_bps=slippage_bps,
+        fee_per_trade=fee_per_trade,
+        max_position_pct=max_position_pct,
+    ).to_simulation_config()
 
     try:
         feed = CsvDataFeed(symbol)
@@ -158,8 +160,14 @@ def main() -> None:
                         help="[EXPERIMENTAL] Allow SELL signals. ConcreteRiskManager is "
                              "direction-blind; short positions produce unreliable P&L until "
                              "direction-aware risk logic is implemented.")
-    parser.add_argument("--max-position-pct", dest="max_position_pct", type=float, default=0.10,
-                        help="Max position size as fraction of equity (default: 0.10)")
+    parser.add_argument("--initial-cash", dest="initial_cash", type=float, default=100_000,
+                        help="Starting cash in USD (default: 100000)")
+    parser.add_argument("--slippage-bps", dest="slippage_bps", type=float, default=5,
+                        help="Slippage in basis points per fill (default: 5)")
+    parser.add_argument("--fee-per-trade", dest="fee_per_trade", type=float, default=1.0,
+                        help="Flat fee in USD per trade (default: 1.0)")
+    parser.add_argument("--max-position-pct", dest="max_position_pct", type=float, default=10,
+                        help="Max position size as percent of equity (default: 10 = 10%%)")
     args = parser.parse_args()
     run(
         symbol=args.symbol.upper(),
@@ -167,6 +175,9 @@ def main() -> None:
         end=date.fromisoformat(args.end),
         toy=args.toy,
         long_only=args.long_only,
+        initial_cash=args.initial_cash,
+        slippage_bps=args.slippage_bps,
+        fee_per_trade=args.fee_per_trade,
         max_position_pct=args.max_position_pct,
     )
 
