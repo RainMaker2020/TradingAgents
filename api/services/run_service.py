@@ -12,9 +12,11 @@ logger = logging.getLogger(__name__)
 try:
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.engine.schemas.config_input import SimulationConfigInput
 except ImportError:
     TradingAgentsGraph = None  # type: ignore
     DEFAULT_CONFIG = {}
+    SimulationConfigInput = None  # type: ignore
 
 
 class RunService:
@@ -42,6 +44,26 @@ class RunService:
         next step starts; try_abort_run already wrote ABORTED so no terminal status is written.
         """
         try:
+            # ── Normalize simulation config at the service boundary ──────────
+            # SimulationConfigSchema (API layer) uses user-friendly units:
+            #   max_position_pct as percent (10 = 10%)
+            # SimulationConfigInput normalizes to engine units:
+            #   max_position_pct as ratio (0.10)
+            # Never pass percent values into the engine — only normalized ratios.
+            #
+            # Currently this run path uses TradingAgentsGraph; sim_cfg will be
+            # passed to BacktestLoop when that execution path is integrated.
+            if SimulationConfigInput is not None:
+                sim_schema = config.simulation_config
+                if sim_schema is not None:
+                    sim_cfg = SimulationConfigInput(
+                        **sim_schema.model_dump(exclude_none=True)
+                    ).to_simulation_config()
+                else:
+                    sim_cfg = SimulationConfigInput().to_simulation_config()
+            else:
+                sim_cfg = None
+
             ta_config = DEFAULT_CONFIG.copy()
             ta_config["llm_provider"]            = config.llm_provider
             ta_config["deep_think_llm"]          = config.deep_think_llm
