@@ -2,8 +2,16 @@ from typing import Annotated
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import yfinance as yf
-import os
+from pathlib import Path
 from .stockstats_utils import StockstatsUtils, _clean_dataframe
+from .config import get_config
+
+
+def _yfin_cache_path(symbol: str, start_date: str, end_date: str) -> Path:
+    config = get_config()
+    cache_dir = Path(config["data_cache_dir"])
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{symbol.upper()}-YFin-data-{start_date}-{end_date}.csv"
 
 def get_YFin_data_online(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -13,6 +21,15 @@ def get_YFin_data_online(
 
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
+    cache_path = _yfin_cache_path(symbol, start_date, end_date)
+
+    if cache_path.exists():
+        csv_string = cache_path.read_text(encoding="utf-8")
+        records = max(0, len([ln for ln in csv_string.splitlines() if ln.strip()]) - 1)
+        header = f"# Stock data for {symbol.upper()} from {start_date} to {end_date}\n"
+        header += f"# Total records: {records}\n"
+        header += "# Data source: cache\n\n"
+        return header + csv_string
 
     # Create ticker object
     ticker = yf.Ticker(symbol.upper())
@@ -38,6 +55,7 @@ def get_YFin_data_online(
 
     # Convert DataFrame to CSV string
     csv_string = data.to_csv()
+    cache_path.write_text(csv_string, encoding="utf-8")
 
     # Add header information
     header = f"# Stock data for {symbol.upper()} from {start_date} to {end_date}\n"
