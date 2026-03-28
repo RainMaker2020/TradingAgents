@@ -85,3 +85,6 @@ class AgentState(MessagesState):
     final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
 
     chief_analyst_report: NotRequired[Optional[dict]]
+
+    # One retry toward last analyst if As-of contract missing; see As-Of Gate in graph.
+    as_of_gate_failures: NotRequired[int]

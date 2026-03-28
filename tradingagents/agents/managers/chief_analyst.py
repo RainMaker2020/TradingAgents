@@ -1,4 +1,5 @@
 from tradingagents.agents.utils.agent_states import ChiefAnalystReport
+from tradingagents.skills import inject_playbook_block
 
 
 def create_chief_analyst(llm):
@@ -21,7 +22,9 @@ def create_chief_analyst(llm):
         trader_plan         = state.get("trader_investment_plan", "")
         final_decision      = state.get("final_trade_decision", "")
 
-        prompt = f"""You are the Chief Analyst. You have received the outputs of a full multi-agent analysis pipeline for {company} on {trade_date}. Synthesize the key findings into a concise executive summary.
+        prompt = inject_playbook_block(
+            "chief_analyst",
+            f"""You are the Chief Analyst. You have received the outputs of a full multi-agent analysis pipeline for {company} on {trade_date}. Synthesize the key findings into a concise executive summary.
 
 ## Market Analysis
 {market_report}
@@ -53,7 +56,8 @@ Produce a concise executive summary as a JSON object with exactly these four fie
 - execution: A brief summary of the trader's entry/exit strategy. What is the plan?
 - tail_risk: The single most significant unmitigated risk identified by the Risk Judge. What could make this trade go wrong?
 
-Be decisive. Be concise. Do not hedge."""
+Be decisive. Be concise. Do not hedge.""",
+        )
 
         report: ChiefAnalystReport = structured_llm.invoke(prompt)
         return {"chief_analyst_report": report.model_dump()}

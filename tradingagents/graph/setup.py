@@ -130,6 +130,33 @@ class GraphSetup:
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Risk Judge", risk_manager_node)
 
+        selected_tuple = tuple(selected_analysts)
+        last_analyst_name = f"{selected_analysts[-1].capitalize()} Analyst"
+
+        def as_of_gate(state):
+            if self.conditional_logic.analyst_reports_include_as_of(
+                state, selected_tuple
+            ):
+                return {"as_of_gate_failures": 0}
+            f = state.get("as_of_gate_failures", 0)
+            if f == 0:
+                return {"as_of_gate_failures": 1}
+            if f == 1:
+                return {"as_of_gate_failures": 2}
+            return {}
+
+        def route_after_as_of_gate(state):
+            if self.conditional_logic.analyst_reports_include_as_of(
+                state, selected_tuple
+            ):
+                return "Bull Researcher"
+            if state.get("as_of_gate_failures", 0) == 1:
+                return last_analyst_name
+            self.conditional_logic.log_as_of_gate_bypass(selected_tuple)
+            return "Bull Researcher"
+
+        workflow.add_node("As-Of Gate", as_of_gate)
+
         # Define edges
         # Start with the first analyst
         first_analyst = selected_analysts[0]
@@ -154,7 +181,16 @@ class GraphSetup:
                 next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
                 workflow.add_edge(current_clear, next_analyst)
             else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+                workflow.add_edge(current_clear, "As-Of Gate")
+
+        workflow.add_conditional_edges(
+            "As-Of Gate",
+            route_after_as_of_gate,
+            {
+                "Bull Researcher": "Bull Researcher",
+                last_analyst_name: last_analyst_name,
+            },
+        )
 
         # Add remaining edges
         workflow.add_conditional_edges(

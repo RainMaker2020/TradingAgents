@@ -44,6 +44,7 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+from tradingagents.skills import make_load_agent_playbook_tool
 
 
 _NODE_TO_STEP = {
@@ -223,21 +224,20 @@ class TradingAgentsGraph:
         return {
             "market": ToolNode(
                 [
-                    # Core stock data tools
+                    make_load_agent_playbook_tool("market"),
                     get_stock_data,
-                    # Technical indicators
                     get_indicators,
                 ]
             ),
             "social": ToolNode(
                 [
-                    # News tools for social media analysis
+                    make_load_agent_playbook_tool("social"),
                     get_news,
                 ]
             ),
             "news": ToolNode(
                 [
-                    # News and insider information
+                    make_load_agent_playbook_tool("news"),
                     get_news,
                     get_global_news,
                     get_insider_transactions,
@@ -245,7 +245,7 @@ class TradingAgentsGraph:
             ),
             "fundamentals": ToolNode(
                 [
-                    # Fundamental analysis tools
+                    make_load_agent_playbook_tool("fundamentals"),
                     get_fundamentals,
                     get_balance_sheet,
                     get_cashflow,

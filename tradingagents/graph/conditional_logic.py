@@ -1,6 +1,31 @@
 # TradingAgents/graph/conditional_logic.py
 
+from __future__ import annotations
+
+import logging
+import re
+
 from tradingagents.agents.utils.agent_states import AgentState
+
+logger = logging.getLogger(__name__)
+
+_AS_OF_MARKER = re.compile(r"(?i)as-of\s*:")
+
+_ANALYST_REPORT_KEYS: dict[str, str] = {
+    "market": "market_report",
+    "social": "sentiment_report",
+    "news": "news_report",
+    "fundamentals": "fundamentals_report",
+}
+
+
+def _text_has_as_of_anchor(text: str, trade_date: str) -> bool:
+    if _AS_OF_MARKER.search(text):
+        return True
+    td = (trade_date or "").strip()
+    if len(td) >= 10 and td[:10] in text:
+        return True
+    return False
 
 
 class ConditionalLogic:
@@ -65,3 +90,28 @@ class ConditionalLogic:
         if state["risk_debate_state"]["latest_speaker"].startswith("Conservative"):
             return "Neutral Analyst"
         return "Aggressive Analyst"
+
+    def analyst_reports_include_as_of(
+        self,
+        state: AgentState,
+        analyst_chain: tuple[str, ...],
+    ) -> bool:
+        """True when each selected analyst's report includes an As-of style anchor."""
+        trade_date = state.get("trade_date", "") or ""
+        for role in analyst_chain:
+            key = _ANALYST_REPORT_KEYS.get(role)
+            if not key:
+                continue
+            blob = (state.get(key) or "").strip()
+            if not blob:
+                return False
+            if not _text_has_as_of_anchor(blob, trade_date):
+                return False
+        return True
+
+    def log_as_of_gate_bypass(self, analyst_chain: tuple[str, ...]) -> None:
+        logger.warning(
+            "As-of gate: proceeding to debate without required markers in reports "
+            "for chain=%s",
+            analyst_chain,
+        )
