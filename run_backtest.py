@@ -95,9 +95,14 @@ def run(
           f"slippage={config.slippage_bps}bps  fee=${config.fee_per_trade}/trade  "
           f"max_pos={float(config.max_position_pct):.0%}\n")
 
-    result = BacktestLoop(feed, strategy, risk, simulator, portfolio, config).run(
-        symbol, start, end
-    )
+    try:
+        result = BacktestLoop(feed, strategy, risk, simulator, portfolio, config).run(
+            symbol, start, end
+        )
+    finally:
+        close = getattr(strategy, "close", None)
+        if callable(close):
+            close()
 
     # ── Event summary ────────────────────────────────────────────────────────
     counts: dict = {}
@@ -117,6 +122,17 @@ def run(
         print("\nRejection codes:")
         for code, n in sorted(rejection_codes.items()):
             print(f"  {code:<32} {n:>5}")
+
+    cache_stats_fn = getattr(strategy, "get_cache_stats", None)
+    if callable(cache_stats_fn):
+        cache_stats = cache_stats_fn()
+        print(
+            "\nSignal cache: "
+            f"hits={cache_stats.get('hits', 0)}  "
+            f"misses={cache_stats.get('misses', 0)}  "
+            f"read_errors={cache_stats.get('read_errors', 0)}  "
+            f"write_errors={cache_stats.get('write_errors', 0)}"
+        )
 
     # ── Fills ────────────────────────────────────────────────────────────────
     fills = [e.fill for e in result.events if e.fill is not None]
