@@ -10,6 +10,14 @@ from tradingagents.engine.schemas.config import SimulationConfig
 
 
 class RiskManager(ABC):
+    """Risk gate between signal and order.
+
+    Implementations **must** accept the keyword-only argument
+    ``peak_equity_for_drawdown`` (even if ignored). ``BacktestLoop`` always
+    passes it so drawdown-based BUY limits can be enforced without widening the
+    positional contract.
+    """
+
     @abstractmethod
     def evaluate(
         self,
@@ -17,6 +25,8 @@ class RiskManager(ABC):
         portfolio: PortfolioState,
         current_prices: dict[str, Decimal],
         config: SimulationConfig,
+        *,
+        peak_equity_for_drawdown: Decimal | None = None,
     ) -> Union[ApprovedOrder, RejectionReason]: ...
 
     def compute_position_size(

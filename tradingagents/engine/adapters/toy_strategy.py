@@ -1,18 +1,23 @@
 # tradingagents/engine/adapters/toy_strategy.py
 """Simple Moving Average Crossover strategy for backtest smoke-testing."""
 from __future__ import annotations
+from decimal import Decimal
 from typing import Union
 
 from tradingagents.engine.schemas.market import MarketState
-from tradingagents.engine.schemas.orders import RejectionCode, RejectionReason
+from tradingagents.engine.schemas.orders import RejectionReason
+from tradingagents.engine.schemas.portfolio import PortfolioState
 from tradingagents.engine.schemas.signals import Signal, SignalDirection
+from tradingagents.engine.strategies.core import entry_signal, exit_signal
+from tradingagents.engine.strategies.types import PositionSnapshot, StrategyParams
 
 
 class MovingAverageCrossStrategy:
-    """Emits BUY when the short MA is above the long MA, HOLD otherwise.
+    """Emits BUY/HOLD from ``entry_signal``; optional SELL from ``exit_signal`` when not long-only.
 
-    Long-only by default: never emits SELL, so the portfolio cannot go short.
-    Set long_only=False to emit SELL on bearish crossings.
+    Composes the shared ``entry_signal`` / ``exit_signal`` helpers in
+    ``tradingagents.engine.strategies`` so agents and tests use one rule
+    implementation.
 
     Satisfies the StrategyAgent Protocol.
 
@@ -20,7 +25,7 @@ class MovingAverageCrossStrategy:
         short_window: Bars for the fast MA (default 5).
         long_window: Bars for the slow MA (default 20).
         confidence: Fixed confidence for all emitted signals (default 0.8).
-        long_only: If True, emit HOLD instead of SELL on bearish crossings.
+        long_only: If True, exit_signal stays HOLD; rely on risk overlays to flat.
     """
 
     def __init__(
@@ -30,41 +35,48 @@ class MovingAverageCrossStrategy:
         confidence: float = 0.8,
         long_only: bool = True,
     ) -> None:
-        self._short = short_window
-        self._long = long_window
+        self._params = StrategyParams(short_window=short_window, long_window=long_window)
         self._confidence = confidence
         self._long_only = long_only
 
     def generate_signal(
-        self, market_state: MarketState
+        self,
+        market_state: MarketState,
+        portfolio: PortfolioState | None = None,
     ) -> Union[Signal, RejectionReason]:
-        bars = market_state.bars_window
-        if len(bars) < self._long:
-            return RejectionReason(
-                code=RejectionCode.INSUFFICIENT_CONTEXT,
-                detail=f"need {self._long} bars, have {len(bars)}",
+        sym = market_state.symbol
+        qty = Decimal("0")
+        avg_entry = Decimal("0")
+        if portfolio is not None:
+            qty = portfolio.positions.get(sym, Decimal("0"))
+            avg_entry = portfolio.cost_basis.get(sym, Decimal("0"))
+
+        if qty > Decimal("0"):
+            pos = PositionSnapshot(symbol=sym, quantity=qty, avg_entry_price=avg_entry)
+            ex = exit_signal(
+                market_state, pos, self._params, long_only=self._long_only
+            )
+            if isinstance(ex, RejectionReason):
+                return ex
+            direction, reasoning = ex
+            return Signal(
+                symbol=sym,
+                direction=direction,
+                confidence=self._confidence,
+                reasoning=reasoning,
+                generated_at=market_state.as_of,
+                source_bar_timestamp=market_state.latest_bar.timestamp,
             )
 
-        closes = [float(b.close) for b in bars]
-        short_ma = sum(closes[-self._short:]) / self._short
-        long_ma = sum(closes[-self._long:]) / self._long
-
-        if short_ma > long_ma:
-            direction = SignalDirection.BUY
-        elif self._long_only:
-            direction = SignalDirection.HOLD
-        else:
-            direction = SignalDirection.SELL
-
+        en = entry_signal(market_state, self._params)
+        if isinstance(en, RejectionReason):
+            return en
+        direction, reasoning = en
         return Signal(
-            symbol=market_state.symbol,
+            symbol=sym,
             direction=direction,
             confidence=self._confidence,
-            reasoning=(
-                f"short_ma({self._short})={short_ma:.4f} "
-                f"{'>' if short_ma > long_ma else '<='} "
-                f"long_ma({self._long})={long_ma:.4f}"
-            ),
+            reasoning=reasoning,
             generated_at=market_state.as_of,
             source_bar_timestamp=market_state.latest_bar.timestamp,
         )

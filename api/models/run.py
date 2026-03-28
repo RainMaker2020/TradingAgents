@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tradingagents.llm_clients.validators import supports_function_calling, validate_model
@@ -74,6 +74,36 @@ class SimulationConfigSchema(BaseModel):
         ),
         examples=[10],
     )
+    stop_loss_percentage: Optional[float] = Field(
+        default=None,
+        description=(
+            "Stop loss below average entry, as percent (e.g. 5 = 5%). "
+            "Omit to disable."
+        ),
+        examples=[5.0],
+    )
+    take_profit_target: Optional[float] = Field(
+        default=None,
+        description=(
+            "Take-profit above average entry, as percent. Omit to disable."
+        ),
+        examples=[10.0],
+    )
+    max_drawdown_limit: Optional[float] = Field(
+        default=None,
+        description=(
+            "Max drawdown from peak equity, percent (e.g. 15 = 15%). "
+            "Blocks new BUYs when exceeded. Omit to disable."
+        ),
+        examples=[15.0],
+    )
+    max_position_size: Optional[float] = Field(
+        default=None,
+        description=(
+            "Maximum shares per symbol (absolute cap). Omit for no cap beyond max_position_pct."
+        ),
+        examples=[500.0],
+    )
 
     # Engine pass-through fields
     fill_model: str = Field(
@@ -133,6 +163,24 @@ class SimulationConfigSchema(BaseModel):
                 "Max Position Size must be between 0 and 100% "
                 "(exclusive lower bound, inclusive upper bound)"
             )
+        return v
+
+    @field_validator("stop_loss_percentage", "take_profit_target", "max_drawdown_limit")
+    @classmethod
+    def _optional_risk_percent_api(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return None
+        if v <= 0 or v > 100:
+            raise ValueError("Risk percentage fields must be between 0 and 100 when set")
+        return v
+
+    @field_validator("max_position_size")
+    @classmethod
+    def _optional_max_shares_api(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return None
+        if v <= 0:
+            raise ValueError("max_position_size must be greater than 0 when set")
         return v
 
     @field_validator("fill_model")
@@ -237,3 +285,12 @@ class RunResult(RunSummary):
     reports: dict[str, str] = Field(default_factory=dict)
     error: Optional[str] = None
     token_usage: dict[str, TokenUsage] = Field(default_factory=dict)
+    # Backtest-only: loaded only when RunsStore.get(..., include_backtest_trace=True)
+    # or GET /runs/{id}?include_backtest_trace=true. Omitted from default fetches to
+    # avoid large JSON payloads and parse cost on list/hot paths.
+    backtest_trace: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description=(
+            "Decoded backtest event trace when explicitly requested; otherwise null."
+        ),
+    )

@@ -13,6 +13,13 @@ class SimulationConfig(BaseSchema):
     # Fee policy: ADDITIVE.
     #   total_fee = fee_per_trade + (qty × price × fee_bps / 10000)  [if fee_bps set]
     max_position_pct: Decimal = Decimal("0.10")  # max fraction of equity per symbol
+    # Optional absolute cap on shares per symbol (applied after pct/cash sizing). None = no extra cap.
+    max_position_size: Decimal | None = None
+    # Ratios vs average entry (long-only v1), e.g. Decimal("0.05") = 5%. None disables the rule.
+    stop_loss_pct: Decimal | None = None
+    take_profit_pct: Decimal | None = None
+    # Max peak-to-trough drawdown on total equity; ratio e.g. 0.15 = 15% off peak blocks new BUYs.
+    max_drawdown_limit: Decimal | None = None
     min_confidence_threshold: float = 0.5        # not enforced by engine internals; apply in RiskManager.evaluate
     random_seed: int = 42                        # reserved for future stochastic components; current slippage arithmetic is deterministic
     calendar_timezone: str = "America/New_York"  # IANA timezone for MarketCalendar

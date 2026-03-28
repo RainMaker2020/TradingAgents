@@ -112,3 +112,75 @@ class TestConcreteRiskManager:
         assert isinstance(result, ApprovedOrder)
         assert result.order.direction == SignalDirection.SELL
         assert result.approved_quantity > Decimal("0")
+
+    def test_rejects_buy_when_drawdown_exceeds_limit(self):
+        mgr = ConcreteRiskManager()
+        signal = make_signal(confidence=0.8, direction=SignalDirection.BUY)
+        cfg = SimulationConfig(
+            initial_cash=Decimal("100000"),
+            min_confidence_threshold=0.5,
+            max_drawdown_limit=Decimal("0.10"),
+        )
+        portfolio = PortfolioState(
+            as_of=NOW,
+            cash=Decimal("50000"),
+            positions={},
+            cost_basis={},
+        )
+        result = mgr.evaluate(
+            signal,
+            portfolio,
+            PRICES,
+            cfg,
+            peak_equity_for_drawdown=Decimal("100000"),
+        )
+        assert result.code == RejectionCode.DRAWDOWN_LIMIT_BREACHED
+
+    def test_buy_allowed_when_drawdown_within_limit(self):
+        mgr = ConcreteRiskManager()
+        signal = make_signal(confidence=0.8, direction=SignalDirection.BUY)
+        cfg = SimulationConfig(
+            initial_cash=Decimal("100000"),
+            min_confidence_threshold=0.5,
+            max_drawdown_limit=Decimal("0.50"),
+        )
+        portfolio = PortfolioState(
+            as_of=NOW,
+            cash=Decimal("50000"),
+            positions={},
+            cost_basis={},
+        )
+        result = mgr.evaluate(
+            signal,
+            portfolio,
+            PRICES,
+            cfg,
+            peak_equity_for_drawdown=Decimal("100000"),
+        )
+        assert isinstance(result, ApprovedOrder)
+
+    def test_max_position_size_caps_buy_quantity(self):
+        mgr = ConcreteRiskManager()
+        signal = make_signal(confidence=1.0, direction=SignalDirection.BUY)
+        cfg = SimulationConfig(
+            initial_cash=Decimal("100000"),
+            min_confidence_threshold=0.5,
+            max_position_pct=Decimal("1.0"),
+            max_position_size=Decimal("3"),
+        )
+        result = mgr.evaluate(signal, _portfolio(), PRICES, cfg)
+        assert isinstance(result, ApprovedOrder)
+        assert result.approved_quantity <= Decimal("3")
+
+    def test_buy_rejected_when_at_max_position_size(self):
+        mgr = ConcreteRiskManager()
+        signal = make_signal(confidence=1.0, direction=SignalDirection.BUY)
+        cfg = SimulationConfig(
+            initial_cash=Decimal("100000"),
+            min_confidence_threshold=0.5,
+            max_position_pct=Decimal("1.0"),
+            max_position_size=Decimal("100"),
+        )
+        portfolio = _portfolio(positions={"AAPL": "100"})
+        result = mgr.evaluate(signal, portfolio, PRICES, cfg)
+        assert result.code == RejectionCode.EXCEEDS_POSITION_LIMIT

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import deque
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Union
 
 from tradingagents.engine.contracts.execution import ExecutionSimulator
 from tradingagents.engine.contracts.feeds import DataFeed
@@ -24,13 +23,60 @@ from tradingagents.engine.schemas.signals import Signal, SignalDirection
 _WINDOW_SIZE = 20  # number of bars to include in MarketState.bars_window
 
 
+def _total_equity(state: PortfolioState, prices: dict[str, Decimal]) -> Decimal:
+    position_value = sum(
+        qty * prices.get(sym, Decimal("0"))
+        for sym, qty in state.positions.items()
+    )
+    return state.cash + position_value
+
+
+def _stop_take_profit_signal(
+    symbol: str,
+    portfolio: PortfolioState,
+    bar: Bar,
+    config: SimulationConfig,
+) -> Signal | None:
+    """Return a forced SELL when stop-loss or take-profit vs cost basis triggers."""
+    qty = portfolio.positions.get(symbol, Decimal("0"))
+    if qty <= Decimal("0"):
+        return None
+    entry = portfolio.cost_basis.get(symbol)
+    if entry is None or entry <= Decimal("0"):
+        return None
+    close = bar.close
+    if config.stop_loss_pct is not None:
+        floor = entry * (Decimal("1") - config.stop_loss_pct)
+        if close <= floor:
+            return Signal(
+                symbol=symbol,
+                direction=SignalDirection.SELL,
+                confidence=1.0,
+                reasoning=f"risk: stop_loss (close {close} <= floor {floor})",
+                generated_at=bar.timestamp,
+                source_bar_timestamp=bar.timestamp,
+            )
+    if config.take_profit_pct is not None:
+        target = entry * (Decimal("1") + config.take_profit_pct)
+        if close >= target:
+            return Signal(
+                symbol=symbol,
+                direction=SignalDirection.SELL,
+                confidence=1.0,
+                reasoning=f"risk: take_profit (close {close} >= target {target})",
+                generated_at=bar.timestamp,
+                source_bar_timestamp=bar.timestamp,
+            )
+    return None
+
+
 class BacktestLoop:
     """Orchestrates the full backtest pipeline.
 
     Per-bar sequence:
     1. stream_bars → Bar or DATA_SKIPPED
-    2. Build MarketState from rolling window
-    3. generate_signal → Signal or SIGNAL_REJECTED
+    2. Build MarketState from rolling window; update peak equity for drawdown limits
+    3. Optional forced SELL from stop_loss / take_profit vs cost basis; else generate_signal
     4. evaluate → ApprovedOrder (emit ORDER_APPROVED) or ORDER_REJECTED
     5. get next bar for fill
     6. fill → FillResult or ORDER_REJECTED
@@ -61,23 +107,28 @@ class BacktestLoop:
         # We'll set it from the first bar we actually see
         first_bar_ts = None
         portfolio_state: PortfolioState | None = None
+        peak_equity: Decimal | None = None
         last_seen_bar: Bar | None = None  # last valid bar seen regardless of fill (for mark-to-market)
         # Deterministic fallback timestamp derived from the run's start date
         start_ts = datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
-        current_ts = start_ts
+        current_day = start
 
         for item in self._feed.stream_bars(symbol, start, end):
+            # Use 21:00 UTC (≈ NYSE close) for skipped-day events, matching bar timestamp convention.
+            event_ts = datetime(
+                current_day.year, current_day.month, current_day.day, 21, 0, 0, tzinfo=timezone.utc
+            )
+            current_day += timedelta(days=1)
             if isinstance(item, RejectionReason):
                 events.append(BacktestEvent(
                     event_type=BacktestEventType.DATA_SKIPPED,
-                    timestamp=current_ts,
+                    timestamp=event_ts,
                     symbol=symbol,
                     rejection=item,
                 ))
                 continue
 
             bar: Bar = item
-            current_ts = bar.timestamp
             last_seen_bar = bar  # always track last valid bar for end-of-run mark-to-market
 
             if first_bar_ts is None:
@@ -93,8 +144,20 @@ class BacktestLoop:
                 bars_window=tuple(window),
             )
 
-            # Strategy
-            signal_result = self._strategy.generate_signal(market_state)
+            mark_prices = {symbol: bar.close}
+            eq = _total_equity(portfolio_state, mark_prices)
+            # Peak is updated with same-bar mark *before* risk evaluates this bar's
+            # orders. A new equity high on the signal bar raises the peak immediately,
+            # so drawdown vs peak is slightly more lenient than "prior bar only" peak.
+            peak_equity = eq if peak_equity is None else max(peak_equity, eq)
+
+            forced = _stop_take_profit_signal(symbol, portfolio_state, bar, self._config)
+            if forced is not None:
+                signal_result = forced
+            else:
+                signal_result = self._strategy.generate_signal(
+                    market_state, portfolio_state
+                )
             if isinstance(signal_result, RejectionReason):
                 events.append(BacktestEvent(
                     event_type=BacktestEventType.SIGNAL_REJECTED,
@@ -112,6 +175,7 @@ class BacktestLoop:
                     event_type=BacktestEventType.SIGNAL_GENERATED,
                     timestamp=bar.timestamp,
                     symbol=symbol,
+                    signal=signal,
                 ))
                 continue
 
@@ -119,12 +183,17 @@ class BacktestLoop:
                 event_type=BacktestEventType.SIGNAL_GENERATED,
                 timestamp=bar.timestamp,
                 symbol=symbol,
+                signal=signal,
             ))
 
             # Risk
             current_prices = {symbol: bar.close}
             risk_result = self._risk.evaluate(
-                signal, portfolio_state, current_prices, self._config
+                signal,
+                portfolio_state,
+                current_prices,
+                self._config,
+                peak_equity_for_drawdown=peak_equity,
             )
             if isinstance(risk_result, RejectionReason):
                 events.append(BacktestEvent(
@@ -140,6 +209,7 @@ class BacktestLoop:
                 event_type=BacktestEventType.ORDER_APPROVED,
                 timestamp=bar.timestamp,
                 symbol=symbol,
+                order=order,
             ))
 
             # Get next bar for execution

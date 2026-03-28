@@ -120,8 +120,11 @@ class FakeStrategyAgent:
         self._idx = 0
 
     def generate_signal(
-        self, market_state: MarketState
+        self,
+        market_state: MarketState,
+        portfolio: PortfolioState | None = None,
     ) -> Union[Signal, RejectionReason]:
+        del portfolio
         result = self._signals[self._idx % len(self._signals)]
         self._idx += 1
         return result
@@ -160,7 +163,10 @@ class FakeRiskManager(RiskManager):
         portfolio: PortfolioState,
         current_prices: dict[str, Decimal],
         config: SimulationConfig,
+        *,
+        peak_equity_for_drawdown: Decimal | None = None,
     ) -> Union[ApprovedOrder, RejectionReason]:
+        del peak_equity_for_drawdown
         dollar_notional = self.compute_position_size(signal, portfolio, current_prices, config)
         price = current_prices.get(signal.symbol, Decimal("0"))
         if price <= Decimal("0"):
@@ -270,7 +276,7 @@ class FakePortfolio(Portfolio):
         )
         total_equity = state.cash + position_value
         unrealized_pnl = sum(
-            qty * (prices.get(sym, Decimal("0")) - state.cost_basis.get(sym, Decimal("0")))
+            qty * (prices.get(sym, state.cost_basis.get(sym, Decimal("0"))) - state.cost_basis.get(sym, Decimal("0")))
             for sym, qty in state.positions.items()
         )
         return PortfolioMetrics(
@@ -279,5 +285,5 @@ class FakePortfolio(Portfolio):
             unrealized_pnl=unrealized_pnl,
             realized_pnl=Decimal("0"),
             total_fees_paid=Decimal("0"),
-            max_drawdown_pct=Decimal("0"),
+            max_drawdown_pct=None,
         )

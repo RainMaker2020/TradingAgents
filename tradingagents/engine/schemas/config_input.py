@@ -14,6 +14,10 @@ slippage_bps        bps  e.g. 5         Decimal bps
 fee_per_trade       USD  e.g. 1.0       Decimal USD
 fee_bps             bps  e.g. None      Decimal bps  (optional additive % fee)
 max_position_pct    %    e.g. 10        Decimal ratio (10 → 0.10)
+stop_loss_percentage   % optional e.g. 5   Decimal ratio (5 → 0.05), None = off
+take_profit_target  % optional e.g. 10    Decimal ratio (10 → 0.10), None = off
+max_drawdown_limit  % optional e.g. 15   Decimal ratio (15 → 0.15), None = off
+max_position_size   shares e.g. 500      Decimal share cap, None = no cap
 fill_model          FillModel enum      passthrough
 min_confidence_threshold  float 0-1     passthrough
 random_seed         int                 passthrough
@@ -61,6 +65,8 @@ class SimulationConfigInput(BaseModel):
     - fee_per_trade             >= 0
     - fee_bps                   >= 0  (when provided)
     - 0 < max_position_pct <= 100     (user-facing percent)
+    - optional risk percents: 0 < value <= 100 when set
+    - optional max_position_size: > 0 when set (share count)
     """
 
     # ── User-facing fields (with unit labels) ──────────────────────────────
@@ -91,6 +97,34 @@ class SimulationConfigInput(BaseModel):
             "Must be greater than 0 and at most 100."
         ),
     )
+    stop_loss_percentage: Decimal | None = Field(
+        default=None,
+        description=(
+            "Stop loss below average entry, as percent (e.g. 5 = 5%). "
+            "Normalized to engine ratio. None disables."
+        ),
+    )
+    take_profit_target: Decimal | None = Field(
+        default=None,
+        description=(
+            "Take-profit target above average entry, as percent. "
+            "Normalized to engine ratio. None disables."
+        ),
+    )
+    max_drawdown_limit: Decimal | None = Field(
+        default=None,
+        description=(
+            "Max portfolio drawdown from peak equity, as percent (e.g. 15 = 15%). "
+            "New BUY signals are blocked when exceeded. None disables."
+        ),
+    )
+    max_position_size: Decimal | None = Field(
+        default=None,
+        description=(
+            "Hard cap on shares held per symbol after a BUY. None = no share cap "
+            "(only max_position_pct applies)."
+        ),
+    )
 
     # ── Engine pass-through fields (no unit conversion needed) ─────────────
     fill_model: FillModel = Field(
@@ -117,7 +151,10 @@ class SimulationConfigInput(BaseModel):
     # ------------------------------------------------------------------
 
     @field_validator(
-        "initial_cash", "slippage_bps", "fee_per_trade", "max_position_pct",
+        "initial_cash",
+        "slippage_bps",
+        "fee_per_trade",
+        "max_position_pct",
         mode="before",
     )
     @classmethod
@@ -132,7 +169,25 @@ class SimulationConfigInput(BaseModel):
 
     @field_validator("fee_bps", mode="before")
     @classmethod
-    def _parse_optional_decimal(cls, v: Any) -> Decimal | None:
+    def _parse_optional_decimal_fee_bps(cls, v: Any) -> Decimal | None:
+        if v is None:
+            return None
+        if isinstance(v, Decimal):
+            return v
+        try:
+            return Decimal(str(v))
+        except InvalidOperation:
+            raise ValueError("Cannot parse the provided value as a numeric value")
+
+    @field_validator(
+        "stop_loss_percentage",
+        "take_profit_target",
+        "max_drawdown_limit",
+        "max_position_size",
+        mode="before",
+    )
+    @classmethod
+    def _parse_optional_risk_decimals(cls, v: Any) -> Decimal | None:
         if v is None:
             return None
         if isinstance(v, Decimal):
@@ -184,6 +239,24 @@ class SimulationConfigInput(BaseModel):
             )
         return v
 
+    @field_validator("stop_loss_percentage", "take_profit_target", "max_drawdown_limit")
+    @classmethod
+    def _optional_risk_percent(cls, v: Decimal | None) -> Decimal | None:
+        if v is None:
+            return None
+        if v <= Decimal("0") or v > Decimal("100"):
+            raise ValueError("Risk percentage fields must be between 0 and 100% when set")
+        return v
+
+    @field_validator("max_position_size")
+    @classmethod
+    def _optional_max_shares(cls, v: Decimal | None) -> Decimal | None:
+        if v is None:
+            return None
+        if v <= Decimal("0"):
+            raise ValueError("max_position_size must be greater than 0 when set")
+        return v
+
     # ------------------------------------------------------------------
     # Normalization
     # ------------------------------------------------------------------
@@ -203,6 +276,22 @@ class SimulationConfigInput(BaseModel):
             fee_per_trade=self.fee_per_trade,
             fee_bps=self.fee_bps,
             max_position_pct=self.max_position_pct / Decimal("100"),
+            max_position_size=self.max_position_size,
+            stop_loss_pct=(
+                self.stop_loss_percentage / Decimal("100")
+                if self.stop_loss_percentage is not None
+                else None
+            ),
+            take_profit_pct=(
+                self.take_profit_target / Decimal("100")
+                if self.take_profit_target is not None
+                else None
+            ),
+            max_drawdown_limit=(
+                self.max_drawdown_limit / Decimal("100")
+                if self.max_drawdown_limit is not None
+                else None
+            ),
             min_confidence_threshold=self.min_confidence_threshold,
             random_seed=self.random_seed,
             calendar_timezone=self.calendar_timezone,
