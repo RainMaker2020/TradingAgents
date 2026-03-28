@@ -13,7 +13,8 @@ export type RunTargetFieldKey =
 export type SimulationErrors = Partial<Record<SimulationFieldKey, string>>
 export type RunTargetErrors = Partial<Record<RunTargetFieldKey, string>>
 
-const TICKER_RE = /^[A-Z]{1,10}$/
+/** Yahoo-style symbols: equities, crypto pairs (BTC-USD), futures (GC=F), indices (^GSPC). */
+const TICKER_RE = /^[\^A-Z0-9.\-=_]{1,63}$/
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 function isFutureCalendarDate(iso: string): boolean {
@@ -53,7 +54,8 @@ export function validateRunTarget(form: NewRunFormState): RunTargetErrors {
   if (!t) {
     errors.ticker = 'Ticker symbol is required.'
   } else if (!TICKER_RE.test(t)) {
-    errors.ticker = 'Use 1–10 uppercase letters (e.g. NVDA).'
+    errors.ticker =
+      'Use a Yahoo Finance symbol: letters, digits, and . - ^ = _ (e.g. AAPL, BTC-USD, GC=F, ^GSPC).'
   }
 
   const dateStr = form.date?.trim() ?? ''

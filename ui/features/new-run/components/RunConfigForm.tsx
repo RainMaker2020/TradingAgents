@@ -282,7 +282,7 @@ export default function RunConfigForm({ onExecutionModeChange }: RunConfigFormPr
             <input
               id="ticker-symbol"
               className="vault-input terminal-text font-bold text-sm tracking-widest"
-              placeholder="e.g. NVDA"
+              placeholder="e.g. NVDA, BTC-USD"
               value={form.ticker}
               onChange={(e) => {
                 set('ticker', e.target.value.toUpperCase())
@@ -293,8 +293,8 @@ export default function RunConfigForm({ onExecutionModeChange }: RunConfigFormPr
               aria-invalid={Boolean(runTargetErrors.ticker)}
               aria-describedby={runTargetErrors.ticker ? 'ticker-symbol-error' : undefined}
               required
-              pattern="[A-Z]{1,10}"
-              title="1–10 uppercase letters"
+              pattern="[\^A-Z0-9.\-=_]{1,63}"
+              title="Yahoo symbol: up to 63 chars; A–Z 0-9 . - ^ = _"
               style={{ letterSpacing: '0.12em' }}
             />
             {runTargetErrors.ticker && (

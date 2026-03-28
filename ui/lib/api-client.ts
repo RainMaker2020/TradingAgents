@@ -1,6 +1,6 @@
 import type { RunConfig, RunSummary, BacktestTraceEvent } from './types/run'
 import type { Settings } from './types/settings'
-import type { ProviderModels, RuntimeHealth, RuntimeSnapshot } from './types/system'
+import type { ProviderModels, RuntimeHealth, RuntimeSnapshot, TickerResolveResponse } from './types/system'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ''
 
@@ -86,6 +86,9 @@ export const getRuntimeSnapshot = (): Promise<RuntimeSnapshot> =>
 
 export const getProviderModels = (provider: string): Promise<ProviderModels> =>
   apiFetch(`/api/system/models/${encodeURIComponent(provider)}`)
+
+export const resolveTickerSymbol = (q: string): Promise<TickerResolveResponse> =>
+  apiFetch(`/api/symbols/resolve?q=${encodeURIComponent(q.trim())}`)
 
 export const getRunStreamUrl = (id: string): string =>
   `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/runs/${id}/stream`

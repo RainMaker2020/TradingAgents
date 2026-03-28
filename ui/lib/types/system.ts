@@ -34,3 +34,12 @@ export type ProviderModels = {
   models: string[]
   error: string | null
 }
+
+/** GET /api/symbols/resolve — Yahoo Finance validation before launch */
+export type TickerResolveResponse = {
+  valid: boolean
+  query: string
+  yahoo_symbol: string
+  display_name: string | null
+  message: string | null
+}

@@ -3,7 +3,7 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routers import runs, settings, system
+from api.routers import runs, settings, symbols, system
 
 app = FastAPI(title="TradingAgents API", version="1.0.0")
 
@@ -17,3 +17,4 @@ app.add_middleware(
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(symbols.router, prefix="/api/symbols", tags=["symbols"])
