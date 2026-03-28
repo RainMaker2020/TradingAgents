@@ -11,6 +11,7 @@ const validJson = JSON.stringify({
   max_drawdown_pct: null,
   as_of: '2024-01-02T00:00:00+00:00',
   positions: { AAPL: '10' },
+  terminal_exposure: 'long',
 })
 
 test('parseBacktestMetrics returns typed object for valid API JSON', () => {
@@ -38,4 +39,23 @@ test('parseBacktestMetrics returns null for invalid JSON', () => {
 test('parseBacktestMetrics returns null when required number missing', () => {
   const bad = JSON.stringify({ ...JSON.parse(validJson), fill_count: 1.5 })
   expect(parseBacktestMetrics(bad)).toBeNull()
+})
+
+test('parseBacktestMetrics infers terminal_exposure when field omitted', () => {
+  const raw = JSON.parse(validJson) as Record<string, unknown>
+  delete raw.terminal_exposure
+  const m = parseBacktestMetrics(JSON.stringify(raw))
+  expect(m).not.toBeNull()
+  expect(m!.terminal_exposure).toBe('long')
+})
+
+test('parseBacktestMetrics infers flat_closed from fills when no positions', () => {
+  const raw = {
+    ...JSON.parse(validJson),
+    positions: {},
+    terminal_exposure: undefined,
+  }
+  delete raw.terminal_exposure
+  const m = parseBacktestMetrics(JSON.stringify(raw))
+  expect(m!.terminal_exposure).toBe('flat_closed')
 })

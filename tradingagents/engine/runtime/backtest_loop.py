@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Literal
 
 from tradingagents.engine.contracts.execution import ExecutionSimulator
 from tradingagents.engine.contracts.feeds import DataFeed
@@ -31,13 +32,19 @@ def _total_equity(state: PortfolioState, prices: dict[str, Decimal]) -> Decimal:
     return state.cash + position_value
 
 
+ForcedExitKind = Literal["stop_loss", "take_profit"]
+
+# Prefix persisted on ``BacktestEvent.detail`` for trace / UI (not an enum to keep JSON stable).
+RISK_FORCED_EXIT_DETAIL_PREFIX = "risk_forced_exit:"
+
+
 def _stop_take_profit_signal(
     symbol: str,
     portfolio: PortfolioState,
     bar: Bar,
     config: SimulationConfig,
-) -> Signal | None:
-    """Return a forced SELL when stop-loss or take-profit vs cost basis triggers."""
+) -> tuple[Signal, ForcedExitKind] | None:
+    """Return a forced SELL and exit kind when stop-loss or take-profit vs cost basis triggers."""
     qty = portfolio.positions.get(symbol, Decimal("0"))
     if qty <= Decimal("0"):
         return None
@@ -48,24 +55,30 @@ def _stop_take_profit_signal(
     if config.stop_loss_pct is not None:
         floor = entry * (Decimal("1") - config.stop_loss_pct)
         if close <= floor:
-            return Signal(
-                symbol=symbol,
-                direction=SignalDirection.SELL,
-                confidence=1.0,
-                reasoning=f"risk: stop_loss (close {close} <= floor {floor})",
-                generated_at=bar.timestamp,
-                source_bar_timestamp=bar.timestamp,
+            return (
+                Signal(
+                    symbol=symbol,
+                    direction=SignalDirection.SELL,
+                    confidence=1.0,
+                    reasoning=f"risk: stop_loss (close {close} <= floor {floor})",
+                    generated_at=bar.timestamp,
+                    source_bar_timestamp=bar.timestamp,
+                ),
+                "stop_loss",
             )
     if config.take_profit_pct is not None:
         target = entry * (Decimal("1") + config.take_profit_pct)
         if close >= target:
-            return Signal(
-                symbol=symbol,
-                direction=SignalDirection.SELL,
-                confidence=1.0,
-                reasoning=f"risk: take_profit (close {close} >= target {target})",
-                generated_at=bar.timestamp,
-                source_bar_timestamp=bar.timestamp,
+            return (
+                Signal(
+                    symbol=symbol,
+                    direction=SignalDirection.SELL,
+                    confidence=1.0,
+                    reasoning=f"risk: take_profit (close {close} >= target {target})",
+                    generated_at=bar.timestamp,
+                    source_bar_timestamp=bar.timestamp,
+                ),
+                "take_profit",
             )
     return None
 
@@ -151,9 +164,11 @@ class BacktestLoop:
             # so drawdown vs peak is slightly more lenient than "prior bar only" peak.
             peak_equity = eq if peak_equity is None else max(peak_equity, eq)
 
-            forced = _stop_take_profit_signal(symbol, portfolio_state, bar, self._config)
-            if forced is not None:
-                signal_result = forced
+            forced_pair = _stop_take_profit_signal(symbol, portfolio_state, bar, self._config)
+            forced_detail: str | None = None
+            if forced_pair is not None:
+                signal_result, forced_kind = forced_pair
+                forced_detail = f"{RISK_FORCED_EXIT_DETAIL_PREFIX}{forced_kind}"
             else:
                 signal_result = self._strategy.generate_signal(
                     market_state, portfolio_state
@@ -175,6 +190,7 @@ class BacktestLoop:
                     event_type=BacktestEventType.SIGNAL_GENERATED,
                     timestamp=bar.timestamp,
                     symbol=symbol,
+                    detail=forced_detail,
                     signal=signal,
                 ))
                 continue
@@ -183,6 +199,7 @@ class BacktestLoop:
                 event_type=BacktestEventType.SIGNAL_GENERATED,
                 timestamp=bar.timestamp,
                 symbol=symbol,
+                detail=forced_detail,
                 signal=signal,
             ))
 

@@ -5,7 +5,10 @@ import pytest
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from tradingagents.engine.runtime.backtest_loop import BacktestLoop
+from tradingagents.engine.runtime.backtest_loop import (
+    BacktestLoop,
+    RISK_FORCED_EXIT_DETAIL_PREFIX,
+)
 from tradingagents.engine.runtime.paper_portfolio import InMemoryPortfolio
 from tradingagents.engine.runtime.simulator import ConcreteExecutionSimulator
 from tradingagents.engine.schemas.config import SimulationConfig
@@ -66,6 +69,48 @@ class TestBacktestLoopSmoke:
         result = self._run()
         fill_events = [e for e in result.events if e.event_type == BacktestEventType.FILL_EXECUTED]
         assert len(fill_events) >= 1
+
+    def test_risk_forced_stop_loss_emits_trace_detail(self):
+        """Stop-loss path sets ``detail`` so the UI trace can label a risk exit."""
+        d1 = datetime(2026, 1, 2, 21, 0, 0, tzinfo=UTC)
+        d2 = datetime(2026, 1, 3, 21, 0, 0, tzinfo=UTC)
+        d3 = datetime(2026, 1, 4, 21, 0, 0, tzinfo=UTC)
+        bars = [
+            make_bar(ts=d1, open="100", close="100"),
+            make_bar(ts=d2, open="100", close="94"),
+            make_bar(ts=d3, open="94", close="94"),
+        ]
+        cfg = SimulationConfig(
+            initial_cash=Decimal("100000"),
+            stop_loss_pct=Decimal("0.05"),
+            slippage_bps=Decimal("0"),
+            fee_per_trade=Decimal("0"),
+        )
+        signals = [
+            make_signal(direction=SignalDirection.BUY, confidence=0.8, ts=d1),
+            make_signal(direction=SignalDirection.HOLD, ts=d2),
+            make_signal(direction=SignalDirection.HOLD, ts=d3),
+        ]
+        feed = FakeDataFeed(bars)
+        strategy = FakeStrategyAgent(signals)
+        risk = FakeRiskManager()
+        simulator = ConcreteExecutionSimulator()
+        portfolio = InMemoryPortfolio()
+        start = date(2026, 1, 2)
+        end = date(2026, 1, 4)
+        result = BacktestLoop(feed, strategy, risk, simulator, portfolio, cfg).run(
+            "AAPL", start, end
+        )
+
+        risk_sells = [
+            e
+            for e in result.events
+            if e.event_type == BacktestEventType.SIGNAL_GENERATED
+            and e.signal is not None
+            and e.signal.direction == SignalDirection.SELL
+            and e.detail == f"{RISK_FORCED_EXIT_DETAIL_PREFIX}stop_loss"
+        ]
+        assert len(risk_sells) == 1
 
     def test_final_state_differs_from_initial(self):
         result = self._run()

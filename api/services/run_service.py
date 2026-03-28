@@ -22,6 +22,18 @@ from tradingagents.engine.schemas.config_input import SimulationConfigInput
 from tradingagents.engine.runtime.backtest_loop import BacktestLoop
 
 
+def _adapter_confidence_for_risk_gate(sim_cfg: SimulationConfig) -> float:
+    """Confidence placed on LangGraph-emitted signals for backtest.
+
+    ``ConcreteRiskManager`` rejects signals when ``signal.confidence <
+    sim_cfg.min_confidence_threshold``. The graph adapter does not produce a
+    numeric score, so we synthesize one: at least 0.8 for sizing continuity when
+    the threshold is low, and at least the threshold when it is above 0.8.
+    """
+    t = float(sim_cfg.min_confidence_threshold)
+    return min(1.0, max(0.8, t))
+
+
 class RunService:
     def _build_ta_config(self, config: RunConfig) -> dict:
         """Build TradingAgents config dict from a RunConfig."""
@@ -143,9 +155,9 @@ class RunService:
     ) -> None:
         """Graph execution path: TradingAgentsGraph (LLM multi-agent analysis).
 
-        ``sim_cfg`` is normalized and available here for future use (e.g. wiring
-        ``min_confidence_threshold`` into the graph config).  Currently the graph
-        uses its own defaults for these parameters.
+        ``sim_cfg`` is normalized for parity with the backtest path but **is not
+        applied** to graph execution today. API clients cannot set backtest-only
+        risk fields while ``mode=graph`` (see ``RunConfig`` validation).
         """
         try:
             ta_config = self._build_ta_config(config)
@@ -222,7 +234,7 @@ class RunService:
                 selected_analysts=config.enabled_analysts
                 or ["market", "news", "fundamentals", "social"],
                 config=ta_config,
-                confidence=0.8,  # signal confidence emitted by the adapter (not the risk gate threshold)
+                confidence=_adapter_confidence_for_risk_gate(sim_cfg),
                 should_cancel=cancel_event.is_set,
             )
             try:
@@ -265,7 +277,17 @@ class RunService:
             )
             self._store.add_report(run_id, "backtest_summary:0", summary)
 
-            # Emit structured metrics report for frontend display
+            # Terminal exposure (explicit in metrics); run decision mirrors it for history filters.
+            if result.final_state.positions:
+                terminal_exposure = "long"
+                decision = "BUY"
+            elif fills:
+                terminal_exposure = "flat_closed"
+                decision = "SELL"
+            else:
+                terminal_exposure = "flat_untraded"
+                decision = "HOLD"
+
             from api.models.backtest import BacktestMetricsPayload, format_backtest_headline
             metrics_payload = BacktestMetricsPayload(
                 initial_cash=float(sim_cfg.initial_cash),
@@ -278,20 +300,13 @@ class RunService:
                 max_drawdown_pct=float(m.max_drawdown_pct) if m.max_drawdown_pct is not None else None,
                 as_of=m.as_of.isoformat() if m.as_of else None,
                 positions={sym: str(qty) for sym, qty in result.final_state.positions.items()},
+                terminal_exposure=terminal_exposure,
             )
             self._store.add_report(run_id, "backtest_metrics:0", metrics_payload.model_dump_json())
             headline = format_backtest_headline(config.ticker, start, end, metrics_payload)
             self._store.add_report(run_id, "backtest_headline:0", headline)
 
             self._store.set_backtest_trace(run_id, serialize_backtest_trace(result.events))
-
-            # Derive a terminal decision from the final portfolio state
-            if result.final_state.positions:
-                decision = "BUY"   # still holding at least one position
-            elif fills:
-                decision = "SELL"  # all positions liquidated
-            else:
-                decision = "HOLD"  # no trades executed
 
             self._store.try_complete_run(run_id, decision)
 

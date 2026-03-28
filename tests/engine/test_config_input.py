@@ -157,17 +157,17 @@ class TestValidation:
     def test_rejects_zero_max_position_pct(self):
         with pytest.raises(ValidationError) as exc_info:
             SimulationConfigInput(max_position_pct=0)
-        assert "Max Position Size" in str(exc_info.value)
+        assert "max_position_pct" in str(exc_info.value)
 
     def test_rejects_negative_max_position_pct(self):
         with pytest.raises(ValidationError) as exc_info:
             SimulationConfigInput(max_position_pct=-5)
-        assert "Max Position Size" in str(exc_info.value)
+        assert "max_position_pct" in str(exc_info.value)
 
     def test_rejects_max_position_pct_over_100(self):
         with pytest.raises(ValidationError) as exc_info:
             SimulationConfigInput(max_position_pct=101)
-        assert "Max Position Size" in str(exc_info.value)
+        assert "max_position_pct" in str(exc_info.value)
 
     def test_100_percent_is_valid_upper_bound(self):
         inp = SimulationConfigInput(max_position_pct=100)

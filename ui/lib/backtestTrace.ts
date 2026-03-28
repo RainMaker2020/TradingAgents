@@ -39,11 +39,27 @@ function str(x: unknown): string {
   return String(x)
 }
 
+const RISK_FORCED_PREFIX = 'risk_forced_exit:'
+
+function riskForcedExitLabel(detail: string): string {
+  if (detail === `${RISK_FORCED_PREFIX}stop_loss`) return 'Stop-loss (engine)'
+  if (detail === `${RISK_FORCED_PREFIX}take_profit`) return 'Take-profit (engine)'
+  return 'Risk exit (engine)'
+}
+
 /** One-line summary for the simulation timeline table. */
 export function summarizeBacktestEvent(ev: BacktestTraceEvent): string {
   const rej = ev.rejection
   if (rej?.code || rej?.detail) {
     return [rej.code, rej.detail].filter(Boolean).join(' — ')
+  }
+  if (typeof ev.detail === 'string' && ev.detail.startsWith(RISK_FORCED_PREFIX)) {
+    const sig = ev.signal
+    const dir = sig && typeof sig.direction === 'string' ? sig.direction : 'SELL'
+    const r = sig && typeof sig.reasoning === 'string' ? sig.reasoning : ''
+    const clip = r.length > 100 ? `${r.slice(0, 97)}…` : r
+    const head = riskForcedExitLabel(ev.detail)
+    return clip ? `${head} · ${dir}: ${clip}` : `${head} · ${dir}`
   }
   const sig = ev.signal
   if (sig && typeof sig.direction === 'string') {
@@ -70,6 +86,13 @@ export function summarizeBacktestEvent(ev: BacktestTraceEvent): string {
 export function traceRowTone(
   ev: BacktestTraceEvent,
 ): 'buy' | 'sell' | 'hold' | 'warn' | 'muted' {
+  if (
+    ev.event_type === 'SIGNAL_GENERATED' &&
+    typeof ev.detail === 'string' &&
+    ev.detail.startsWith(RISK_FORCED_PREFIX)
+  ) {
+    return 'sell'
+  }
   if (ev.event_type === 'FILL_EXECUTED' && ev.fill) {
     const d = str(ev.fill.direction).toUpperCase()
     if (d.includes('SELL')) return 'sell'

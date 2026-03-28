@@ -16,6 +16,7 @@ def test_format_backtest_headline_range_and_return():
         max_drawdown_pct=None,
         as_of=None,
         positions={"AAPL": "10"},
+        terminal_exposure="long",
     )
     h = format_backtest_headline("aapl", date(2024, 1, 2), date(2024, 1, 10), payload)
     assert "AAPL" in h
@@ -37,6 +38,7 @@ def test_format_backtest_headline_single_day_na_return():
         max_drawdown_pct=None,
         as_of=None,
         positions={},
+        terminal_exposure="flat_untraded",
     )
     d = date(2024, 6, 1)
     h = format_backtest_headline("x", d, d, payload)

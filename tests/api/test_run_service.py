@@ -2,7 +2,10 @@ import pytest
 import threading
 from collections import defaultdict
 from unittest.mock import patch, MagicMock
-from api.services.run_service import RunService
+from decimal import Decimal
+
+from api.services.run_service import RunService, _adapter_confidence_for_risk_gate
+from tradingagents.engine.schemas.config import SimulationConfig
 from api.store.runs_store import RunsStore
 from api.models.run import RunConfig, RunStatus
 
@@ -15,6 +18,15 @@ def store(tmp_path):
 @pytest.fixture
 def service(store):
     return RunService(store)
+
+
+def test_adapter_confidence_for_risk_gate_matches_threshold_above_floor():
+    hi = SimulationConfig(initial_cash=Decimal("1"), min_confidence_threshold=0.95)
+    assert _adapter_confidence_for_risk_gate(hi) == 0.95
+    lo = SimulationConfig(initial_cash=Decimal("1"), min_confidence_threshold=0.5)
+    assert _adapter_confidence_for_risk_gate(lo) == 0.8
+    cap = SimulationConfig(initial_cash=Decimal("1"), min_confidence_threshold=1.0)
+    assert _adapter_confidence_for_risk_gate(cap) == 1.0
 
 
 def _mock_graph(stream_yields, decision="BUY"):
@@ -561,6 +573,7 @@ class TestBacktestMetricsReport:
             "initial_cash", "final_equity", "total_return_pct",
             "unrealized_pnl", "realized_pnl", "total_fees_paid",
             "fill_count", "max_drawdown_pct", "as_of", "positions",
+            "terminal_exposure",
         }
         for key in required_keys:
             assert key in parsed, f"Missing key: {key}"
@@ -568,6 +581,7 @@ class TestBacktestMetricsReport:
         assert parsed["fill_count"] == 0
         assert parsed["positions"] == {"AAPL": "10"}
         assert parsed["max_drawdown_pct"] is None
+        assert parsed["terminal_exposure"] == "long"
 
     def test_backtest_persists_trace_with_signal_and_order(self, service, store):
         from datetime import datetime, timezone
@@ -639,6 +653,7 @@ class TestBacktestMetricsReport:
             max_drawdown_pct=None,
             as_of=None,
             positions={},
+            terminal_exposure="flat_untraded",
         )
         parsed = json.loads(p.model_dump_json())
         assert parsed["total_return_pct"] is None

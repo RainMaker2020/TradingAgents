@@ -1,4 +1,21 @@
-import type { BacktestMetrics } from '@/lib/types/run'
+import type { BacktestMetrics, BacktestTerminalExposure } from '@/lib/types/run'
+
+const EXPOSURES: BacktestTerminalExposure[] = ['long', 'flat_closed', 'flat_untraded']
+
+function inferTerminalExposure(
+  raw: Record<string, unknown>,
+  positions: Record<string, string>,
+): BacktestTerminalExposure {
+  const te = raw.terminal_exposure
+  if (typeof te === 'string' && (EXPOSURES as string[]).includes(te)) {
+    return te as BacktestTerminalExposure
+  }
+  const keys = Object.keys(positions)
+  if (keys.length > 0) return 'long'
+  const fc = raw.fill_count
+  if (typeof fc === 'number' && Number.isInteger(fc) && fc > 0) return 'flat_closed'
+  return 'flat_untraded'
+}
 
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
@@ -60,6 +77,8 @@ export function parseBacktestMetrics(report: string): BacktestMetrics | null {
     positions[k] = v
   }
 
+  const terminal_exposure = inferTerminalExposure(r, positions)
+
   return {
     initial_cash: r.initial_cash,
     final_equity: r.final_equity,
@@ -71,5 +90,6 @@ export function parseBacktestMetrics(report: string): BacktestMetrics | null {
     max_drawdown_pct,
     as_of,
     positions,
+    terminal_exposure,
   }
 }

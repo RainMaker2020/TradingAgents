@@ -7,6 +7,10 @@ Usage:
     python run_backtest.py --symbol AAPL --start 2024-01-02 --end 2024-01-05
     python run_backtest.py --toy                             # MA-crossover (no LLM)
 
+Optional risk flags (same units as API SimulationConfigSchema): --stop-loss-pct,
+--take-profit-pct, --max-drawdown-pct (percents); --max-position-shares; --min-confidence;
+--fee-bps.
+
 Defaults to a 3-day window to keep LLM costs low during plumbing tests.
 Use --toy to run without any LLM calls (fast, free).
 
@@ -25,6 +29,7 @@ from __future__ import annotations
 import argparse
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -37,8 +42,50 @@ from tradingagents.engine.runtime.backtest_loop import BacktestLoop
 from tradingagents.engine.runtime.paper_portfolio import InMemoryPortfolio
 from tradingagents.engine.runtime.simulator import ConcreteExecutionSimulator
 from tradingagents.engine.runtime.risk_manager import ConcreteRiskManager
+from tradingagents.engine.schemas.config import SimulationConfig
 from tradingagents.engine.schemas.config_input import SimulationConfigInput
 from tradingagents.engine.schemas.portfolio import BacktestEventType
+
+
+def _adapter_confidence_for_risk_gate(sim_cfg: SimulationConfig) -> float:
+    """Align LangGraph signal confidence with ``min_confidence_threshold`` (see RunService)."""
+    t = float(sim_cfg.min_confidence_threshold)
+    return min(1.0, max(0.8, t))
+
+
+def _simulation_config_input_kwargs(
+    *,
+    initial_cash: float,
+    slippage_bps: float,
+    fee_per_trade: float,
+    max_position_pct: float,
+    stop_loss_percentage: float | None = None,
+    take_profit_target: float | None = None,
+    max_drawdown_limit: float | None = None,
+    max_position_size: float | None = None,
+    min_confidence_threshold: float | None = None,
+    fee_bps: float | None = None,
+) -> dict[str, Any]:
+    """Build kwargs for ``SimulationConfigInput`` (same percent/share semantics as the API)."""
+    kw: dict[str, Any] = {
+        "initial_cash": initial_cash,
+        "slippage_bps": slippage_bps,
+        "fee_per_trade": fee_per_trade,
+        "max_position_pct": max_position_pct,
+    }
+    if stop_loss_percentage is not None:
+        kw["stop_loss_percentage"] = stop_loss_percentage
+    if take_profit_target is not None:
+        kw["take_profit_target"] = take_profit_target
+    if max_drawdown_limit is not None:
+        kw["max_drawdown_limit"] = max_drawdown_limit
+    if max_position_size is not None:
+        kw["max_position_size"] = max_position_size
+    if min_confidence_threshold is not None:
+        kw["min_confidence_threshold"] = min_confidence_threshold
+    if fee_bps is not None:
+        kw["fee_bps"] = fee_bps
+    return kw
 
 
 def run(
@@ -51,12 +98,27 @@ def run(
     slippage_bps: float = 5,
     fee_per_trade: float = 1.0,
     max_position_pct: float = 10,  # percent, e.g. 10 = 10%
+    *,
+    stop_loss_percentage: float | None = None,
+    take_profit_target: float | None = None,
+    max_drawdown_limit: float | None = None,
+    max_position_size: float | None = None,
+    min_confidence_threshold: float | None = None,
+    fee_bps: float | None = None,
 ) -> None:
     config = SimulationConfigInput(
-        initial_cash=initial_cash,
-        slippage_bps=slippage_bps,
-        fee_per_trade=fee_per_trade,
-        max_position_pct=max_position_pct,
+        **_simulation_config_input_kwargs(
+            initial_cash=initial_cash,
+            slippage_bps=slippage_bps,
+            fee_per_trade=fee_per_trade,
+            max_position_pct=max_position_pct,
+            stop_loss_percentage=stop_loss_percentage,
+            take_profit_target=take_profit_target,
+            max_drawdown_limit=max_drawdown_limit,
+            max_position_size=max_position_size,
+            min_confidence_threshold=min_confidence_threshold,
+            fee_bps=fee_bps,
+        )
     ).to_simulation_config()
 
     try:
@@ -83,7 +145,7 @@ def run(
         strategy = LangGraphStrategyAdapter(
             selected_analysts=["market", "fundamentals"],
             config=graph_config,
-            confidence=0.8,
+            confidence=_adapter_confidence_for_risk_gate(config),
         )
         print("Strategy: LangGraphStrategyAdapter (market + fundamentals analysts)")
     risk = ConcreteRiskManager()
@@ -91,9 +153,22 @@ def run(
     portfolio = InMemoryPortfolio()
 
     print(f"\nRunning backtest: {symbol}  {start} to {end}")
-    print(f"Config: cash=${float(config.initial_cash):,.0f}  "
-          f"slippage={config.slippage_bps}bps  fee=${config.fee_per_trade}/trade  "
-          f"max_pos={float(config.max_position_pct):.0%}\n")
+    risk_bits: list[str] = []
+    if config.stop_loss_pct is not None:
+        risk_bits.append(f"stop={float(config.stop_loss_pct):.2%}")
+    if config.take_profit_pct is not None:
+        risk_bits.append(f"tp={float(config.take_profit_pct):.2%}")
+    if config.max_drawdown_limit is not None:
+        risk_bits.append(f"max_dd={float(config.max_drawdown_limit):.2%}")
+    if config.max_position_size is not None:
+        risk_bits.append(f"max_shares={config.max_position_size}")
+    risk_suffix = f"  [{' '.join(risk_bits)}]" if risk_bits else ""
+    print(
+        f"Config: cash=${float(config.initial_cash):,.0f}  "
+        f"slippage={config.slippage_bps}bps  fee=${config.fee_per_trade}/trade  "
+        f"max_pos={float(config.max_position_pct):.0%}"
+        f"{risk_suffix}\n"
+    )
 
     try:
         result = BacktestLoop(feed, strategy, risk, simulator, portfolio, config).run(
@@ -184,17 +259,69 @@ def main() -> None:
                         help="Flat fee in USD per trade (default: 1.0)")
     parser.add_argument("--max-position-pct", dest="max_position_pct", type=float, default=10,
                         help="Max position size as percent of equity (default: 10 = 10%%)")
+    parser.add_argument(
+        "--stop-loss-pct",
+        dest="stop_loss_percentage",
+        type=float,
+        default=None,
+        help="Stop loss vs avg entry, percent (e.g. 5 = 5%%). Same as API stop_loss_percentage.",
+    )
+    parser.add_argument(
+        "--take-profit-pct",
+        dest="take_profit_target",
+        type=float,
+        default=None,
+        help="Take-profit vs avg entry, percent. Same as API take_profit_target.",
+    )
+    parser.add_argument(
+        "--max-drawdown-pct",
+        dest="max_drawdown_limit",
+        type=float,
+        default=None,
+        help="Max drawdown from peak equity, percent. Same as API max_drawdown_limit.",
+    )
+    parser.add_argument(
+        "--max-position-shares",
+        dest="max_position_size",
+        type=float,
+        default=None,
+        help="Hard cap on shares per symbol. Same as API max_position_size.",
+    )
+    parser.add_argument(
+        "--min-confidence",
+        dest="min_confidence_threshold",
+        type=float,
+        default=None,
+        help="Risk gate threshold 0–1 (default from SimulationConfigInput: 0.5).",
+    )
+    parser.add_argument(
+        "--fee-bps",
+        dest="fee_bps",
+        type=float,
+        default=None,
+        help="Optional fee on notional in basis points (additive with --fee-per-trade).",
+    )
     args = parser.parse_args()
+    start_d = date.fromisoformat(args.start)
+    end_d = date.fromisoformat(args.end)
+    if end_d < start_d:
+        parser.error("--end must be on or after --start")
     run(
         symbol=args.symbol.upper(),
-        start=date.fromisoformat(args.start),
-        end=date.fromisoformat(args.end),
+        start=start_d,
+        end=end_d,
         toy=args.toy,
         long_only=args.long_only,
         initial_cash=args.initial_cash,
         slippage_bps=args.slippage_bps,
         fee_per_trade=args.fee_per_trade,
         max_position_pct=args.max_position_pct,
+        stop_loss_percentage=args.stop_loss_percentage,
+        take_profit_target=args.take_profit_target,
+        max_drawdown_limit=args.max_drawdown_limit,
+        max_position_size=args.max_position_size,
+        min_confidence_threshold=args.min_confidence_threshold,
+        fee_bps=args.fee_bps,
     )
 
 

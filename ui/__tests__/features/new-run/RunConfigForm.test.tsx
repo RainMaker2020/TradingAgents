@@ -168,7 +168,7 @@ test('invalid simulation values block submit and show inline errors', async () =
 test('maps API 422 simulation_config errors to field-level messages', async () => {
   jest.mocked(createRun).mockRejectedValueOnce(
     new ApiError('API error 422: /api/runs', 422, '/api/runs', [
-      { loc: ['body', 'simulation_config', 'max_position_pct'], msg: 'Max Position Size must be between 0 and 100%' },
+      { loc: ['body', 'simulation_config', 'max_position_pct'], msg: 'max_position_pct (percent of equity) must be greater than 0 and at most 100' },
     ]),
   )
 
@@ -184,7 +184,7 @@ test('maps API 422 simulation_config errors to field-level messages', async () =
   await waitFor(() =>
     expect(screen.getByText(/please correct the highlighted simulation fields/i)).toBeInTheDocument(),
   )
-  expect(screen.getByText(/max position size must be between 0 and 100%/i)).toBeInTheDocument()
+  expect(screen.getByText(/max_position_pct.*percent of equity/i)).toBeInTheDocument()
 })
 
 test('switches to deepseek defaults', async () => {

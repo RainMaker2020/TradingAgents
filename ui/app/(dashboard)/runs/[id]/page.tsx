@@ -13,7 +13,7 @@ import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 import { deriveBacktestHeadlineFromMetrics } from '@/lib/backtestHeadline'
 import { AGENT_STEP_LABELS } from '@/lib/types/run'
-import type { AgentStep } from '@/lib/types/run'
+import type { AgentStep, BacktestTerminalExposure } from '@/lib/types/run'
 
 const STATUS_CONFIG: Record<string, {
   bg: string; color: string; dot: string; label: string; pulse: boolean
@@ -33,6 +33,12 @@ function formatPct(v: number | null): string {
   if (v === null) return 'N/A'
   const sign = v > 0 ? '+' : ''
   return `${sign}${v.toFixed(2)}%`
+}
+
+function formatTerminalExposure(e: BacktestTerminalExposure): string {
+  if (e === 'long') return 'Open long'
+  if (e === 'flat_closed') return 'Flat (after trades)'
+  return 'Flat (no trades)'
 }
 
 export default function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -114,6 +120,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
           { label: 'Realized P&L',   value: formatMoney(backtestMetrics.realized_pnl),     tone: backtestMetrics.realized_pnl > 0 ? 'positive' as const : backtestMetrics.realized_pnl < 0 ? 'negative' as const : 'neutral' as const },
           { label: 'Unrealized P&L', value: formatMoney(backtestMetrics.unrealized_pnl),   tone: backtestMetrics.unrealized_pnl > 0 ? 'positive' as const : backtestMetrics.unrealized_pnl < 0 ? 'negative' as const : 'neutral' as const },
           { label: 'Fills',          value: String(backtestMetrics.fill_count),             tone: 'neutral' as const },
+          {
+            label: 'At end',
+            value: formatTerminalExposure(backtestMetrics.terminal_exposure),
+            tone: 'neutral' as const,
+          },
           { label: 'Fees Paid',      value: formatMoney(backtestMetrics.total_fees_paid),   tone: 'warning' as const },
         ]
       : [

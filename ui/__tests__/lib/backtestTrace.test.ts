@@ -26,3 +26,23 @@ test('summarizeBacktestEvent prefers rejection then signal then fill', () => {
   expect(summarizeBacktestEvent(fill)).toMatch(/BUY/)
   expect(summarizeBacktestEvent(fill)).toMatch(/100/)
 })
+
+test('summarizeBacktestEvent highlights engine stop-loss / take-profit exits', () => {
+  const stop: BacktestTraceEvent = {
+    event_type: 'SIGNAL_GENERATED',
+    detail: 'risk_forced_exit:stop_loss',
+    signal: {
+      direction: 'SELL',
+      reasoning: 'risk: stop_loss (close 94 <= floor 95)',
+    },
+  }
+  expect(summarizeBacktestEvent(stop)).toMatch(/Stop-loss \(engine\)/)
+  expect(summarizeBacktestEvent(stop)).toMatch(/SELL/)
+
+  const tp: BacktestTraceEvent = {
+    event_type: 'SIGNAL_GENERATED',
+    detail: 'risk_forced_exit:take_profit',
+    signal: { direction: 'SELL', reasoning: 'risk: take_profit' },
+  }
+  expect(summarizeBacktestEvent(tp)).toMatch(/Take-profit \(engine\)/)
+})

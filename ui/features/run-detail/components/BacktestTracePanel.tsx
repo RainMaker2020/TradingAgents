@@ -113,9 +113,10 @@ export default function BacktestTracePanel({ events }: Props) {
       </div>
 
       <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-low)' }}>
-        Each row is one engine step: data availability, LangGraph signal (BUY/SELL/HOLD and reasoning when
-        present), risk/execution outcomes, and fills at next-session open. This complements the aggregate
-        metrics above—it does not replace per-agent LLM transcripts (graph mode only).
+        Each row is one engine step: data availability, strategy signal (BUY/SELL/HOLD), optional engine-driven
+        stop / take-profit exits (tagged in the summary), risk/execution outcomes, and fills at next-session
+        open. This complements the aggregate metrics above—it does not replace per-agent LLM transcripts (graph
+        mode only).
       </p>
     </div>
   )

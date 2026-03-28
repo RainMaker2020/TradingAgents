@@ -234,8 +234,7 @@ class SimulationConfigInput(BaseModel):
     def _max_position_in_range(cls, v: Decimal) -> Decimal:
         if v <= Decimal("0") or v > Decimal("100"):
             raise ValueError(
-                "Max Position Size must be between 0 and 100% "
-                "(exclusive lower bound, inclusive upper bound)"
+                "max_position_pct (percent of equity) must be greater than 0 and at most 100"
             )
         return v
 

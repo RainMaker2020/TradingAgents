@@ -22,6 +22,10 @@ class SimulationConfigSchema(BaseModel):
 
     API accepts percent; engine stores ratio.
 
+    **Mode scope:** Fields ``stop_loss_percentage``, ``take_profit_target``,
+    ``max_drawdown_limit``, and ``max_position_size`` are enforced only when
+    ``RunConfig.mode == "backtest"``. Graph runs must omit them (API validation).
+
     Example payload::
 
         {
@@ -77,30 +81,32 @@ class SimulationConfigSchema(BaseModel):
     stop_loss_percentage: Optional[float] = Field(
         default=None,
         description=(
-            "Stop loss below average entry, as percent (e.g. 5 = 5%). "
-            "Omit to disable."
+            "Backtest only. Stop loss below average entry, as percent (e.g. 5 = 5%). "
+            "Omit to disable. Not allowed when mode=graph."
         ),
         examples=[5.0],
     )
     take_profit_target: Optional[float] = Field(
         default=None,
         description=(
-            "Take-profit above average entry, as percent. Omit to disable."
+            "Backtest only. Take-profit above average entry, as percent. "
+            "Omit to disable. Not allowed when mode=graph."
         ),
         examples=[10.0],
     )
     max_drawdown_limit: Optional[float] = Field(
         default=None,
         description=(
-            "Max drawdown from peak equity, percent (e.g. 15 = 15%). "
-            "Blocks new BUYs when exceeded. Omit to disable."
+            "Backtest only. Max drawdown from peak equity, percent (e.g. 15 = 15%). "
+            "Blocks new BUYs when exceeded. Not allowed when mode=graph."
         ),
         examples=[15.0],
     )
     max_position_size: Optional[float] = Field(
         default=None,
         description=(
-            "Maximum shares per symbol (absolute cap). Omit for no cap beyond max_position_pct."
+            "Backtest only. Maximum shares per symbol (absolute cap). "
+            "Not allowed when mode=graph."
         ),
         examples=[500.0],
     )
@@ -113,7 +119,12 @@ class SimulationConfigSchema(BaseModel):
     )
     min_confidence_threshold: float = Field(
         default=0.5,
-        description="Minimum signal confidence to pass the risk gate (0.0–1.0).",
+        description=(
+            "Minimum signal confidence to pass the risk gate (0.0–1.0). "
+            "In backtest with LangGraphStrategyAdapter, emitted confidence is "
+            "max(0.8, this value) (capped at 1.0) so it clears the gate while "
+            "preserving a floor for position sizing."
+        ),
         examples=[0.5],
     )
     random_seed: int = Field(
@@ -160,8 +171,7 @@ class SimulationConfigSchema(BaseModel):
     def _max_position_in_range(cls, v: float) -> float:
         if v <= 0 or v > 100:
             raise ValueError(
-                "Max Position Size must be between 0 and 100% "
-                "(exclusive lower bound, inclusive upper bound)"
+                "max_position_pct (percent of equity) must be greater than 0 and at most 100"
             )
         return v
 
@@ -200,6 +210,15 @@ class SimulationConfigSchema(BaseModel):
             raise ValueError("min_confidence_threshold must be between 0.0 and 1.0")
         return v
 
+    def has_backtest_only_risk_overrides(self) -> bool:
+        """True when optional fields that only apply to engine/backtest are set."""
+        return (
+            self.stop_loss_percentage is not None
+            or self.take_profit_target is not None
+            or self.max_drawdown_limit is not None
+            or self.max_position_size is not None
+        )
+
 
 class RunStatus(str, Enum):
     QUEUED = "queued"
@@ -227,7 +246,9 @@ class RunConfig(BaseModel):
             "Optional simulation parameters in user-friendly units. "
             "If omitted, engine defaults are used. "
             "max_position_pct is expressed as percent (10 = 10%); "
-            "the engine receives the normalized ratio (0.10)."
+            "the engine receives the normalized ratio (0.10). "
+            "Backtest-only risk keys (stop_loss_percentage, take_profit_target, "
+            "max_drawdown_limit, max_position_size) must be omitted when mode=graph."
         ),
     )
     mode: Literal["graph", "backtest"] = Field(
@@ -265,13 +286,49 @@ class RunConfig(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_graph_mode_simulation_fields(self):
+        """Graph runs do not execute BacktestLoop; reject misleading risk overrides."""
+        if self.mode != "graph":
+            return self
+        sim = self.simulation_config
+        if sim is None or not sim.has_backtest_only_risk_overrides():
+            return self
+        raise ValueError(
+            "For mode='graph', simulation_config must not set backtest-only fields "
+            "(stop_loss_percentage, take_profit_target, max_drawdown_limit, "
+            "max_position_size). Omit them or use mode='backtest'."
+        )
+
+    @model_validator(mode="after")
+    def validate_backtest_date_range(self):
+        if self.mode != "backtest":
+            return self
+        from datetime import date as date_cls
+
+        try:
+            start = date_cls.fromisoformat(self.date)
+            end = date_cls.fromisoformat(self.end_date) if self.end_date else start
+        except ValueError as exc:
+            raise ValueError("date and end_date must be valid YYYY-MM-DD strings") from exc
+        if end < start:
+            raise ValueError("end_date must be on or after date for backtest mode")
+        return self
+
 
 class RunSummary(BaseModel):
     id: str
     ticker: str
     date: str
     status: RunStatus
-    decision: Optional[Literal["BUY", "SELL", "HOLD"]] = None
+    decision: Optional[Literal["BUY", "SELL", "HOLD"]] = Field(
+        default=None,
+        description=(
+            "Graph mode: model verdict. Backtest: mirrors terminal portfolio state "
+            "(BUY = open long, SELL = flat after at least one fill, HOLD = no fills); "
+            "prefer backtest_metrics.terminal_exposure when present."
+        ),
+    )
     created_at: str
 
 

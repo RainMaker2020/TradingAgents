@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import date
-from typing import Optional
-from pydantic import BaseModel
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
 
 
 class BacktestMetricsPayload(BaseModel):
@@ -16,6 +16,9 @@ class BacktestMetricsPayload(BaseModel):
     max_drawdown_pct: Optional[float]  # None if not computed
     as_of: Optional[str]               # ISO datetime string, from metrics.as_of
     positions: dict[str, str]          # symbol → qty as string (Decimal-safe)
+    terminal_exposure: Literal["long", "flat_closed", "flat_untraded"] = Field(
+        description="End-of-run position state (backtest). Not an intraday trade signal.",
+    )
 
 
 def format_backtest_headline(

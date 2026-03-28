@@ -85,6 +85,9 @@ export type RunSummary = {
   created_at: string
 }
 
+/** End-of-run exposure (backtest); not an intraday trade signal. */
+export type BacktestTerminalExposure = 'long' | 'flat_closed' | 'flat_untraded'
+
 export type BacktestMetrics = {
   initial_cash: number
   final_equity: number
@@ -97,6 +100,7 @@ export type BacktestMetrics = {
   max_drawdown_pct: number | null
   as_of: string | null
   positions: Record<string, string>
+  terminal_exposure: BacktestTerminalExposure
 }
 
 /** One row from `RunsStore.backtest_trace` (serialized `BacktestEvent`). */

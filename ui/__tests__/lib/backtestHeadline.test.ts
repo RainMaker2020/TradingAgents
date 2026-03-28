@@ -12,6 +12,7 @@ const base: BacktestMetrics = {
   max_drawdown_pct: null,
   as_of: null,
   positions: {},
+  terminal_exposure: 'flat_closed',
 }
 
 test('deriveBacktestHeadlineFromMetrics matches server-style pattern', () => {

@@ -1,6 +1,7 @@
 """Tests for run_backtest strategy lifecycle management."""
 from __future__ import annotations
 
+import sys
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -82,3 +83,35 @@ def test_run_backtest_closes_strategy_on_backtest_error(monkeypatch):
 
     assert len(created) == 1
     assert created[0].closed is True
+
+
+def test_simulation_config_input_kwargs_normalizes_risk_percents():
+    kw = run_backtest._simulation_config_input_kwargs(
+        initial_cash=100_000,
+        slippage_bps=5,
+        fee_per_trade=1.0,
+        max_position_pct=10,
+        stop_loss_percentage=5.0,
+        take_profit_target=12.5,
+        max_drawdown_limit=15.0,
+        max_position_size=500.0,
+        min_confidence_threshold=0.7,
+        fee_bps=3.0,
+    )
+    cfg = run_backtest.SimulationConfigInput(**kw).to_simulation_config()
+    assert cfg.stop_loss_pct == Decimal("0.05")
+    assert cfg.take_profit_pct == Decimal("0.125")
+    assert cfg.max_drawdown_limit == Decimal("0.15")
+    assert cfg.max_position_size == Decimal("500")
+    assert cfg.min_confidence_threshold == 0.7
+    assert cfg.fee_bps == Decimal("3")
+
+
+def test_cli_rejects_end_before_start(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_backtest", "--start", "2024-01-10", "--end", "2024-01-01", "--toy"],
+    )
+    with pytest.raises(SystemExit):
+        run_backtest.main()
