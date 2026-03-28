@@ -4,4 +4,6 @@ export type SettingsFormState = {
   quick_think_llm: string
   max_debate_rounds: number
   max_risk_discuss_rounds: number
+  execution_mode: 'graph' | 'backtest'
+  profile_preset: 'fast' | 'balanced' | 'deep' | null
 }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import ChiefAnalystCard from '@/features/run-detail/components/ChiefAnalystCard'
 import type { ChiefAnalystReport } from '@/lib/types/agents'
 import type { AgentStep } from '@/lib/types/run'
@@ -33,14 +33,16 @@ test('shows running skeleton when status is running', () => {
 
 test('shows verdict when status is done and report is provided', () => {
   render(<ChiefAnalystCard report={mockReport} status="done" ticker="AAPL" date="2024-01-15" reports={mockReports} />)
-  expect(screen.getByText('BUY')).toBeInTheDocument()
+  const main = screen.getByTestId('chief-analyst-main')
+  expect(within(main).getByText('BUY')).toBeInTheDocument()
 })
 
 test('shows institutional sections when done', () => {
   render(<ChiefAnalystCard report={mockReport} status="done" ticker="AAPL" date="2024-01-15" reports={mockReports} />)
-  expect(screen.getByText(/time horizon/i)).toBeInTheDocument()
-  expect(screen.getByText(/scenario matrix/i)).toBeInTheDocument()
-  expect(screen.getByText(/sources summary/i)).toBeInTheDocument()
+  const main = screen.getByTestId('chief-analyst-main')
+  expect(within(main).getByText(/time horizon/i)).toBeInTheDocument()
+  expect(within(main).getByText(/scenario matrix/i)).toBeInTheDocument()
+  expect(within(main).getByText(/sources summary/i)).toBeInTheDocument()
 })
 
 test('shows execution when done', () => {

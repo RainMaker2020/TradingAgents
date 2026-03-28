@@ -25,6 +25,8 @@ export function useRunSubmit() {
       const payload: RunConfig = {
         ticker: form.ticker,
         date: form.date,
+        mode: form.mode,
+        end_date: form.mode === 'backtest' && form.end_date ? form.end_date : null,
         llm_provider: form.llm_provider,
         deep_think_llm: form.deep_think_llm,
         quick_think_llm: form.quick_think_llm,

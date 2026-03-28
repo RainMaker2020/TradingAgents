@@ -1,7 +1,13 @@
 'use client'
 import type { Decision } from '@/lib/types/agents'
 
-type Props = { verdict: Decision | null; ticker: string; date: string }
+type Props = {
+  verdict: Decision | null
+  ticker: string
+  date: string
+  mode?: 'graph' | 'backtest' | null
+  endDate?: string | null
+}
 
 const VERDICT_CONFIG: Record<Decision, {
   color: string
@@ -45,9 +51,21 @@ const VERDICT_CONFIG: Record<Decision, {
   },
 }
 
-export default function VerdictBanner({ verdict, ticker, date }: Props) {
+export default function VerdictBanner({ verdict, ticker, date, mode, endDate }: Props) {
   if (!verdict || !VERDICT_CONFIG[verdict]) return null
   const cfg = VERDICT_CONFIG[verdict]
+  const isBacktest = mode === 'backtest'
+  const badgeLabel = isBacktest ? 'BACKTEST OUTCOME' : 'AI CONSENSUS'
+  const headerLabel = isBacktest ? 'Backtest Complete' : 'Analysis Complete'
+  const displayDate = isBacktest && endDate ? `${date} → ${endDate}` : date
+  const displaySublabel = isBacktest ? 'Terminal Decision' : cfg.sublabel
+  const displayDescription = isBacktest
+    ? verdict === 'HOLD'
+      ? 'Backtest ended without changing net exposure.'
+      : verdict === 'BUY'
+        ? 'Backtest ended with open long exposure.'
+        : 'Backtest ended with no remaining long exposure.'
+    : cfg.description
 
   return (
     <div
@@ -94,7 +112,7 @@ export default function VerdictBanner({ verdict, ticker, date }: Props) {
         {/* Top row: label + meta */}
         <div className="flex items-center justify-between mb-5">
           <div className="apex-label" style={{ color: cfg.color, opacity: 0.7 }}>
-            Analysis Complete
+            {headerLabel}
           </div>
           <div
             className="flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold"
@@ -106,7 +124,7 @@ export default function VerdictBanner({ verdict, ticker, date }: Props) {
               border: `1px solid ${cfg.colorRing}`,
             }}
           >
-            AI CONSENSUS
+            {badgeLabel}
           </div>
         </div>
 
@@ -132,14 +150,14 @@ export default function VerdictBanner({ verdict, ticker, date }: Props) {
                 className="terminal-text text-sm font-medium"
                 style={{ color: 'var(--text-mid)', letterSpacing: '0.02em' }}
               >
-                {date}
+                {displayDate}
               </span>
             </div>
             <p
               className="text-sm"
               style={{ color: 'var(--text-mid)', fontFamily: 'var(--font-manrope)', lineHeight: 1.5 }}
             >
-              {cfg.description}
+              {displayDescription}
             </p>
           </div>
 
@@ -156,7 +174,7 @@ export default function VerdictBanner({ verdict, ticker, date }: Props) {
                 textTransform: 'uppercase',
               }}
             >
-              {cfg.sublabel}
+              {displaySublabel}
             </div>
             <div
               className="flex items-center justify-center gap-2"

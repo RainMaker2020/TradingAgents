@@ -14,6 +14,16 @@ jest.mock('@/lib/api-client', () => {
       models: ['gpt-5-mini'],
       error: null,
     }),
+    getSettings: jest.fn().mockResolvedValue({
+      llm_provider: 'openai',
+      deep_think_llm: 'gpt-5.2',
+      quick_think_llm: 'gpt-5-mini',
+      max_debate_rounds: 1,
+      max_risk_discuss_rounds: 1,
+      execution_mode: 'graph',
+      profile_preset: null,
+    }),
+    updateSettings: jest.fn().mockImplementation((s: unknown) => Promise.resolve(s)),
   }
 })
 
@@ -95,6 +105,32 @@ test('edited simulation values are submitted as friendly units', async () => {
         fee_per_trade: 0.5,
         max_position_pct: 25, // percent, not 0.25
       }),
+    }),
+  )
+})
+
+test('submits backtest mode with end_date', async () => {
+  render(<RunConfigForm />)
+  fireEvent.click(screen.getByRole('tab', { name: /backtest \(engine\)/i }))
+  fireEvent.change(screen.getByPlaceholderText('e.g. NVDA'), {
+    target: { value: 'AAPL' },
+  })
+  fireEvent.change(screen.getByLabelText(/trade date/i), {
+    target: { value: '2024-01-02' },
+  })
+  fireEvent.change(screen.getByLabelText(/end date/i), {
+    target: { value: '2024-01-10' },
+  })
+
+  fireEvent.click(screen.getByText(/run analysis/i))
+
+  await waitFor(() => expect(createRun).toHaveBeenCalled())
+  expect(createRun).toHaveBeenCalledWith(
+    expect.objectContaining({
+      mode: 'backtest',
+      end_date: '2024-01-10',
+      ticker: 'AAPL',
+      date: '2024-01-02',
     }),
   )
 })

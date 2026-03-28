@@ -1,12 +1,28 @@
 'use client'
 import Link from 'next/link'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import type { RunSummary } from '@/lib/types/run'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 import { abortRun as apiAbortRun } from '@/lib/api-client'
 import AbortConfirmModal from '@/features/run-detail/components/AbortConfirmModal'
 
 type Props = { runs: RunSummary[]; onAbortSuccess?: () => void }
+
+const HISTORY_FILTERS_KEY = 'ta:history-table-filters'
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number]
+
+const rowActionOutlineBase = {
+  display: 'inline-flex' as const,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  background: 'transparent',
+  borderRadius: '4px',
+  padding: '2px 8px',
+  fontSize: '11px',
+  fontFamily: 'var(--font-mono)',
+}
 
 function DecisionBadge({ decision }: { decision: string }) {
   const lower = decision.toLowerCase()
@@ -47,6 +63,56 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
   const [sortBy, setSortBy] = useState<'created_desc' | 'created_asc' | 'ticker_asc'>('created_desc')
   const [abortTarget, setAbortTarget] = useState<RunSummary | null>(null)
   const [abortingIds, setAbortingIds] = useState<Set<string>>(new Set())
+  const [pageSize, setPageSize] = useState<PageSize>(25)
+  const [page, setPage] = useState(1)
+  const skipInitialPersist = useRef(true)
+
+  useLayoutEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(HISTORY_FILTERS_KEY)
+      if (!raw) return
+      const p = JSON.parse(raw) as Record<string, unknown>
+      if (typeof p.query === 'string') setQuery(p.query)
+      if (p.decisionFilter === 'all' || p.decisionFilter === 'BUY' || p.decisionFilter === 'SELL' || p.decisionFilter === 'HOLD') {
+        setDecisionFilter(p.decisionFilter)
+      }
+      const st = p.statusFilter
+      if (
+        st === 'all' ||
+        st === 'queued' ||
+        st === 'running' ||
+        st === 'complete' ||
+        st === 'error' ||
+        st === 'aborted'
+      ) {
+        setStatusFilter(st)
+      }
+      if (p.sortBy === 'created_desc' || p.sortBy === 'created_asc' || p.sortBy === 'ticker_asc') {
+        setSortBy(p.sortBy)
+      }
+      const ps = p.pageSize
+      if (typeof ps === 'number' && PAGE_SIZE_OPTIONS.includes(ps as PageSize)) {
+        setPageSize(ps as PageSize)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (skipInitialPersist.current) {
+      skipInitialPersist.current = false
+      return
+    }
+    try {
+      sessionStorage.setItem(
+        HISTORY_FILTERS_KEY,
+        JSON.stringify({ query, decisionFilter, statusFilter, sortBy, pageSize }),
+      )
+    } catch {
+      /* ignore */
+    }
+  }, [query, decisionFilter, statusFilter, sortBy, pageSize])
 
   async function handleAbortConfirm() {
     if (!abortTarget) return
@@ -80,6 +146,36 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
     }
     return [...searched].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
   }, [runs, query, decisionFilter, statusFilter, sortBy])
+
+  const totalFiltered = filteredRuns.length
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize))
+
+  useEffect(() => {
+    setPage(1)
+  }, [query, decisionFilter, statusFilter, sortBy])
+
+  useEffect(() => {
+    setPage((p) => Math.min(p, totalPages))
+  }, [totalPages])
+
+  const paginatedRuns = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return filteredRuns.slice(start, start + pageSize)
+  }, [filteredRuns, page, pageSize])
+
+  const rangeStart = totalFiltered === 0 ? 0 : (page - 1) * pageSize + 1
+  const rangeEnd = Math.min(page * pageSize, totalFiltered)
+
+  const goPrev = useCallback(() => setPage((p) => Math.max(1, p - 1)), [])
+  const goNext = useCallback(() => setPage((p) => Math.min(totalPages, p + 1)), [totalPages])
+
+  const pageBtnStyle = (disabled: boolean) => ({
+    ...rowActionOutlineBase,
+    color: disabled ? 'var(--text-low)' : 'var(--accent-light)',
+    border: `1px solid ${disabled ? 'var(--border)' : 'var(--accent-light)'}`,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.45 : 1,
+  })
 
   if (runs.length === 0) {
     return (
@@ -153,13 +249,31 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
           </>
         }
         right={
-          <ToolbarField label="Sort">
-            <select className="ws-control" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
-              <option value="created_desc">Newest</option>
-              <option value="created_asc">Oldest</option>
-              <option value="ticker_asc">Ticker A-Z</option>
-            </select>
-          </ToolbarField>
+          <>
+            <ToolbarField label="Per page">
+              <select
+                className="ws-control"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value) as PageSize)
+                  setPage(1)
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+            <ToolbarField label="Sort">
+              <select className="ws-control" value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+                <option value="created_desc">Newest</option>
+                <option value="created_asc">Oldest</option>
+                <option value="ticker_asc">Ticker A-Z</option>
+              </select>
+            </ToolbarField>
+          </>
         }
       />
 
@@ -176,7 +290,7 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
             </tr>
           </thead>
           <tbody>
-            {filteredRuns.map((run) => (
+            {paginatedRuns.map((run) => (
               <tr key={run.id}>
                 <td>
                   <div className="flex items-center gap-2">
@@ -210,23 +324,30 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
                 <td className="terminal-text text-xs">{new Date(run.created_at).toLocaleString()}</td>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Link href={`/runs/${run.id}`} className="ws-table-action">
+                    <Link
+                      href={`/runs/${run.id}`}
+                      className="ws-table-action"
+                      style={{
+                        ...rowActionOutlineBase,
+                        color: 'var(--accent-light)',
+                        border: '1px solid var(--accent-light)',
+                        cursor: 'pointer',
+                        textDecoration: 'none',
+                      }}
+                    >
                       Open
                     </Link>
                     {(run.status === 'queued' || run.status === 'running') && (
                       <button
+                        type="button"
                         onClick={() => setAbortTarget(run)}
                         disabled={abortingIds.has(run.id)}
                         style={{
-                          background: 'transparent',
+                          ...rowActionOutlineBase,
                           color: 'var(--error)',
                           border: '1px solid var(--error)',
-                          borderRadius: '4px',
-                          padding: '2px 8px',
-                          fontSize: '11px',
                           cursor: abortingIds.has(run.id) ? 'not-allowed' : 'pointer',
                           opacity: abortingIds.has(run.id) ? 0.5 : 1,
-                          fontFamily: 'var(--font-mono)',
                         }}
                       >
                         {abortingIds.has(run.id) ? '…' : 'Abort'}
@@ -236,7 +357,7 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
                 </td>
               </tr>
             ))}
-            {filteredRuns.length === 0 && (
+            {totalFiltered === 0 && (
               <tr>
                 <td colSpan={6} className="terminal-text text-xs" style={{ color: 'var(--text-low)' }}>
                   No rows match the current filters.
@@ -247,11 +368,24 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
         </table>
       </div>
 
-      <div className="flex items-center justify-between px-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
         <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)' }}>
-          {filteredRuns.length} / {runs.length} VISIBLE
+          {totalFiltered === 0
+            ? `0 / ${runs.length} VISIBLE`
+            : `${rangeStart}–${rangeEnd} of ${totalFiltered} · ${runs.length} total`}
         </span>
-        <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)' }}>
+        <div className="flex items-center gap-2">
+          <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)' }}>
+            PAGE {page} / {totalPages}
+          </span>
+          <button type="button" onClick={goPrev} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>
+            Prev
+          </button>
+          <button type="button" onClick={goNext} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>
+            Next
+          </button>
+        </div>
+        <span className="terminal-text text-[10px] shrink-0" style={{ color: 'var(--text-low)' }}>
           DESKTOP MONITOR MODE
         </span>
       </div>

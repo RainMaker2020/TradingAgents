@@ -3,6 +3,8 @@ import { DEFAULT_ENABLED_ANALYSTS, DEFAULT_WORKSPACE_SETTINGS } from '@/lib/defa
 export type NewRunFormState = {
   ticker: string
   date: string
+  mode: 'graph' | 'backtest'
+  end_date: string
   llm_provider: string
   deep_think_llm: string
   quick_think_llm: string
@@ -18,6 +20,8 @@ export type NewRunFormState = {
 export const DEFAULT_FORM: NewRunFormState = {
   ticker: '',
   date: '',
+  mode: 'graph',
+  end_date: '',
   llm_provider: DEFAULT_WORKSPACE_SETTINGS.llm_provider,
   deep_think_llm: DEFAULT_WORKSPACE_SETTINGS.deep_think_llm,
   quick_think_llm: DEFAULT_WORKSPACE_SETTINGS.quick_think_llm,

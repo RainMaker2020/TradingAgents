@@ -1,4 +1,4 @@
-import type { RunConfig, RunSummary } from './types/run'
+import type { RunConfig, RunSummary, BacktestTraceEvent } from './types/run'
 import type { Settings } from './types/settings'
 import type { ProviderModels, RuntimeHealth, RuntimeSnapshot } from './types/system'
 
@@ -48,6 +48,16 @@ export type RunResult = RunSummary & {
   reports: Record<string, string>
   error: string | null
   token_usage: Record<string, { tokens_in: number; tokens_out: number }> | null
+  /**
+   * Populated only when `getRun(id, { includeBacktestTrace: true })` is used
+   * (GET `?include_backtest_trace=true`). Otherwise omitted or null — see API `RunResult`.
+   */
+  backtest_trace?: BacktestTraceEvent[] | null
+}
+
+export type GetRunOptions = {
+  /** Set true for run-detail / backtest timeline (adds `?include_backtest_trace=true`). */
+  includeBacktestTrace?: boolean
 }
 
 export const createRun = (config: RunConfig): Promise<RunSummary> =>
@@ -56,8 +66,11 @@ export const createRun = (config: RunConfig): Promise<RunSummary> =>
 export const listRuns = (): Promise<RunSummary[]> =>
   apiFetch('/api/runs')
 
-export const getRun = (id: string): Promise<RunResult> =>
-  apiFetch<RunResult>(`/api/runs/${id}`)
+export const getRun = (id: string, options?: GetRunOptions): Promise<RunResult> => {
+  const q =
+    options?.includeBacktestTrace === true ? '?include_backtest_trace=true' : ''
+  return apiFetch<RunResult>(`/api/runs/${id}${q}`)
+}
 
 export const getSettings = (): Promise<Settings> =>
   apiFetch('/api/settings')

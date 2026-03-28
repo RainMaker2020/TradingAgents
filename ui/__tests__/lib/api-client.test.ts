@@ -1,4 +1,4 @@
-import { createRun, listRuns, getSettings } from '@/lib/api-client'
+import { createRun, listRuns, getSettings, getRun } from '@/lib/api-client'
 
 global.fetch = jest.fn()
 
@@ -34,4 +34,29 @@ test('listRuns GETs /api/runs', async () => {
   const result = await listRuns()
   expect(fetch).toHaveBeenCalledWith('/api/runs', expect.objectContaining({ headers: undefined }))
   expect(Array.isArray(result)).toBe(true)
+})
+
+test('getRun GETs /api/runs/{id} without trace query by default', async () => {
+  ;(fetch as jest.Mock).mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ id: 'x', ticker: 'A', date: '2024-01-01', status: 'complete', reports: {} }),
+  })
+  await getRun('x')
+  expect(fetch).toHaveBeenCalledWith('/api/runs/x', expect.anything())
+})
+
+test('getRun with includeBacktestTrace requests query param', async () => {
+  ;(fetch as jest.Mock).mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      id: 'x',
+      ticker: 'A',
+      date: '2024-01-01',
+      status: 'complete',
+      reports: {},
+      backtest_trace: [],
+    }),
+  })
+  await getRun('x', { includeBacktestTrace: true })
+  expect(fetch).toHaveBeenCalledWith('/api/runs/x?include_backtest_trace=true', expect.anything())
 })

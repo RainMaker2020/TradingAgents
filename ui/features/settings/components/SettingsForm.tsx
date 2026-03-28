@@ -1,15 +1,18 @@
 'use client'
 import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import { getProviderModels, getSettings, updateSettings } from '@/lib/api-client'
 import type { SettingsFormState } from '../types'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar from '@/components/dashboard/Toolbar'
 import { DEFAULT_WORKSPACE_SETTINGS, PROVIDER_MODEL_DEFAULTS, RUN_LIMITS } from '@/lib/defaults'
+import { validateSettingsForm, type SettingsFieldErrors } from '../validation'
 
 const DEFAULTS: SettingsFormState = { ...DEFAULT_WORKSPACE_SETTINGS }
 
 export default function SettingsForm() {
   const [form, setForm]   = useState<SettingsFormState>(DEFAULTS)
+  const [fieldErrors, setFieldErrors] = useState<SettingsFieldErrors>({})
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -55,9 +58,12 @@ export default function SettingsForm() {
     ].filter(Boolean)),
   )
 
-  const save = async (e: React.FormEvent) => {
+  const save = async (e: FormEvent) => {
     e.preventDefault()
     setSaveError(null)
+    const errs = validateSettingsForm(form)
+    setFieldErrors(errs)
+    if (Object.keys(errs).length > 0) return
     try {
       await updateSettings(form)
       setSaved(true)
@@ -101,6 +107,11 @@ export default function SettingsForm() {
                 deep_think_llm: defaults.deep,
                 quick_think_llm: defaults.quick,
               }))
+              setFieldErrors((prev) => ({
+                ...prev,
+                deep_think_llm: undefined,
+                quick_think_llm: undefined,
+              }))
             }}
           >
             <option value="openai">OpenAI</option>
@@ -117,7 +128,12 @@ export default function SettingsForm() {
             <select
               className="vault-input"
               value={form[key]}
-              onChange={(e) => set(key, e.target.value)}
+              onChange={(e) => {
+                set(key, e.target.value)
+                if (fieldErrors[key]) {
+                  setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
+                }
+              }}
               disabled={modelsLoading && modelOptions.length === 0}
             >
               {modelOptions.length === 0 ? (
@@ -132,6 +148,11 @@ export default function SettingsForm() {
                 ))
               )}
             </select>
+            {fieldErrors[key] && (
+              <p className="text-[10px] mt-1" style={{ color: 'var(--error)', fontFamily: 'var(--font-mono)' }}>
+                {fieldErrors[key]}
+              </p>
+            )}
           </div>
         ))}
         {modelsError && (
@@ -148,11 +169,25 @@ export default function SettingsForm() {
               {key.replace(/_/g, ' ')}
             </label>
             <input
-              type="number" min={RUN_LIMITS.minRounds} max={RUN_LIMITS.maxRounds}
+              type="number"
+              min={RUN_LIMITS.minRounds}
+              max={RUN_LIMITS.maxRounds}
+              step={1}
               className="vault-input"
-              value={form[key]}
-              onChange={(e) => set(key, Number(e.target.value))}
+              value={Number.isFinite(form[key]) ? form[key] : ''}
+              onChange={(e) => {
+                const raw = e.target.value.trim()
+                set(key, raw === '' ? Number.NaN : Number(raw))
+                if (fieldErrors[key]) {
+                  setFieldErrors((prev) => ({ ...prev, [key]: undefined }))
+                }
+              }}
             />
+            {fieldErrors[key] && (
+              <p className="text-[10px] mt-1" style={{ color: 'var(--error)', fontFamily: 'var(--font-mono)' }}>
+                {fieldErrors[key]}
+              </p>
+            )}
           </div>
         ))}
       </Panel>
@@ -180,7 +215,10 @@ export default function SettingsForm() {
       <div className="flex gap-3 justify-end pt-1">
         <button
           type="button"
-          onClick={() => setForm(DEFAULTS)}
+          onClick={() => {
+            setForm(DEFAULTS)
+            setFieldErrors({})
+          }}
           className="btn-secondary px-4 py-2.5 text-sm"
         >
           Reset to Defaults

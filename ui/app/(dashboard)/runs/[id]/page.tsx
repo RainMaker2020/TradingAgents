@@ -6,9 +6,12 @@ import VerdictBanner from '@/features/run-detail/components/VerdictBanner'
 import PhaseTabs from '@/features/run-detail/components/PhaseTabs'
 import TokenStatsBar from '@/features/run-detail/components/TokenStatsBar'
 import ChiefAnalystCard from '@/features/run-detail/components/ChiefAnalystCard'
+import AbortConfirmModal from '@/features/run-detail/components/AbortConfirmModal'
+import BacktestTracePanel from '@/features/run-detail/components/BacktestTracePanel'
 import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
+import { deriveBacktestHeadlineFromMetrics } from '@/lib/backtestHeadline'
 import { AGENT_STEP_LABELS } from '@/lib/types/run'
 import type { AgentStep } from '@/lib/types/run'
 
@@ -21,12 +24,48 @@ const STATUS_CONFIG: Record<string, {
   error:      { bg: 'var(--error-bg)',         color: 'var(--error)',     dot: 'var(--error)',     label: 'Error',       pulse: false },
 }
 
+function formatMoney(v: number): string {
+  const abs = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return v < 0 ? `-$${abs}` : `$${abs}`
+}
+
+function formatPct(v: number | null): string {
+  if (v === null) return 'N/A'
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v.toFixed(2)}%`
+}
+
 export default function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { steps, reports, verdict, status, error, tokensTotal, tokensByStep, chiefAnalystReport, ticker, date } = useRunStream(id)
+  const {
+    steps,
+    reports,
+    verdict,
+    status,
+    error,
+    tokensTotal,
+    tokensByStep,
+    chiefAnalystReport,
+    ticker,
+    date,
+    mode,
+    endDate,
+    backtestSummary,
+    backtestHeadline,
+    backtestMetrics,
+    backtestTrace,
+    llmProvider,
+    deepThinkLlm,
+    quickThinkLlm,
+    abortRun,
+    isAborting,
+  } = useRunStream(id)
   const [viewMode, setViewMode] = useState<'overview' | 'diagnostics'>('overview')
+  const [showAbortModal, setShowAbortModal] = useState(false)
 
   const sc = STATUS_CONFIG[status] ?? STATUS_CONFIG.connecting
+  const isBacktest = mode === 'backtest'
+  const isRunning = status === 'running' || status === 'connecting'
   const stepEntries = Object.entries(steps)
   const completedSteps = stepEntries.filter(([, value]) => value === 'done').length
   const runningSteps = stepEntries.filter(([, value]) => value === 'running').length
@@ -43,6 +82,52 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
     if (!leader || leader[1].in + leader[1].out === 0) return 'N/A'
     return AGENT_STEP_LABELS[leader[0] as AgentStep] ?? leader[0].replace(/_/g, ' ')
   }, [tokensByStep])
+  const modeLabel = mode === 'backtest' ? 'BACKTEST' : mode === 'graph' ? 'GRAPH' : 'UNKNOWN'
+  const modeTone = mode === 'backtest' ? 'var(--hold)' : 'var(--accent)'
+  const dateLabel = isBacktest && date && endDate ? `${date} → ${endDate}` : date
+  const viewModes = isBacktest ? (['overview'] as const) : (['overview', 'diagnostics'] as const)
+
+  const scanHeadline = useMemo(() => {
+    if (backtestHeadline) return backtestHeadline
+    if (backtestMetrics && ticker && date) {
+      return deriveBacktestHeadlineFromMetrics(ticker, date, endDate, backtestMetrics)
+    }
+    return null
+  }, [backtestHeadline, backtestMetrics, ticker, date, endDate])
+
+  const metricItems = isBacktest
+    ? backtestMetrics
+      ? [
+          { label: 'Final Equity',   value: formatMoney(backtestMetrics.final_equity),     tone: 'accent' as const },
+          {
+            label: 'Total Return',
+            value: formatPct(backtestMetrics.total_return_pct),
+            tone:
+              backtestMetrics.total_return_pct === null
+                ? ('neutral' as const)
+                : backtestMetrics.total_return_pct > 0
+                  ? ('positive' as const)
+                  : backtestMetrics.total_return_pct < 0
+                    ? ('negative' as const)
+                    : ('neutral' as const),
+          },
+          { label: 'Realized P&L',   value: formatMoney(backtestMetrics.realized_pnl),     tone: backtestMetrics.realized_pnl > 0 ? 'positive' as const : backtestMetrics.realized_pnl < 0 ? 'negative' as const : 'neutral' as const },
+          { label: 'Unrealized P&L', value: formatMoney(backtestMetrics.unrealized_pnl),   tone: backtestMetrics.unrealized_pnl > 0 ? 'positive' as const : backtestMetrics.unrealized_pnl < 0 ? 'negative' as const : 'neutral' as const },
+          { label: 'Fills',          value: String(backtestMetrics.fill_count),             tone: 'neutral' as const },
+          { label: 'Fees Paid',      value: formatMoney(backtestMetrics.total_fees_paid),   tone: 'warning' as const },
+        ]
+      : [
+          { label: 'Execution Mode', value: modeLabel, tone: 'warning' as const },
+          { label: 'Run Status',     value: sc.label.toUpperCase(), tone: 'neutral' as const },
+          { label: 'Summary',        value: backtestSummary ? 'READY' : isRunning ? 'PENDING' : 'UNAVAILABLE', tone: 'accent' as const },
+          { label: 'Abort',          value: isRunning ? (isAborting ? 'STOPPING' : 'AVAILABLE') : 'N/A', tone: 'neutral' as const },
+        ]
+    : [
+        { label: 'Completed Steps', value: `${completedSteps}/${stepEntries.length}`, tone: 'positive' as const },
+        { label: 'Running Steps', value: String(runningSteps), tone: 'warning' as const },
+        { label: 'Token In / Out', value: `${tokensTotal.in} / ${tokensTotal.out}`, tone: 'accent' as const },
+        { label: 'Top Token Agent', value: highestTokenStep, tone: 'neutral' as const },
+      ]
 
   return (
     <div className="space-y-4 animate-fade-up">
@@ -56,7 +141,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
               <>
                 <span className="terminal-text" style={{ color: 'var(--accent-light)' }}>{ticker}</span>
                 <span style={{ margin: '0 10px', color: 'var(--text-low)' }}>·</span>
-                <span className="terminal-text text-[22px]" style={{ color: 'var(--text-mid)' }}>{date}</span>
+                <span className="terminal-text text-[22px]" style={{ color: 'var(--text-mid)' }}>{dateLabel}</span>
               </>
             ) : (
               'Loading run'
@@ -73,6 +158,16 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             letterSpacing: '0.1em',
           }}
         >
+          <span
+            className="px-1.5 py-0.5 rounded"
+            style={{
+              background: `${modeTone}18`,
+              color: modeTone,
+              border: `1px solid ${modeTone}40`,
+            }}
+          >
+            {modeLabel}
+          </span>
           <div
             className="w-1.5 h-1.5 rounded-full shrink-0"
             style={{
@@ -85,19 +180,12 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      <MetricStrip
-        items={[
-          { label: 'Completed Steps', value: `${completedSteps}/${stepEntries.length}`, tone: 'positive' },
-          { label: 'Running Steps', value: String(runningSteps), tone: 'warning' },
-          { label: 'Token In / Out', value: `${tokensTotal.in} / ${tokensTotal.out}`, tone: 'accent' },
-          { label: 'Top Token Agent', value: highestTokenStep, tone: 'neutral' },
-        ]}
-      />
+      <MetricStrip items={metricItems} />
 
       <Toolbar
         left={
           <ToolbarField label="View">
-            {(['overview', 'diagnostics'] as const).map((mode) => (
+            {viewModes.map((mode) => (
               <button
                 key={mode}
                 type="button"
@@ -111,29 +199,107 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
           </ToolbarField>
         }
         right={
-          <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)', letterSpacing: '0.08em' }}>
-            RUN ID · {id.slice(0, 8)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)', letterSpacing: '0.08em' }}>
+              RUN ID · {id.slice(0, 8)}
+            </span>
+            {isRunning && (
+              <button
+                type="button"
+                className="btn-secondary !h-[34px] !px-3 !py-0 text-xs"
+                style={{ borderColor: 'rgba(255,43,62,0.35)', color: 'var(--error)' }}
+                onClick={() => setShowAbortModal(true)}
+                disabled={isAborting}
+              >
+                {isAborting ? 'Stopping...' : 'Abort Run'}
+              </button>
+            )}
+          </div>
         }
       />
 
       <div className="ws-grid-2">
         <div className="space-y-4 min-w-0">
           {/* Token stats bar */}
-          <TokenStatsBar tokensTotal={tokensTotal} />
+          {!isBacktest && <TokenStatsBar tokensTotal={tokensTotal} />}
 
           {/* Chief Analyst Executive Summary */}
-          <ChiefAnalystCard
-            report={chiefAnalystReport}
-            status={steps['chief_analyst']}
-            ticker={ticker ?? ''}
-            date={date ?? ''}
-            reports={reports}
-            chiefRawReport={chiefRawReport}
-          />
+          {mode !== 'backtest' && (
+            <ChiefAnalystCard
+              report={chiefAnalystReport}
+              status={steps['chief_analyst']}
+              ticker={ticker ?? ''}
+              date={date ?? ''}
+              reports={reports}
+              chiefRawReport={chiefRawReport}
+            />
+          )}
+
+          {mode === 'backtest' && (scanHeadline || backtestSummary) && (
+            <Panel
+              title="Backtest result"
+              subtitle={
+                scanHeadline
+                  ? 'Scan line is generated from the same metrics as the tiles (server or client fallback).'
+                  : 'Engine text output'
+              }
+            >
+              {scanHeadline && (
+                <p
+                  className="text-[15px] leading-snug mb-4 terminal-text font-medium tracking-tight"
+                  style={{ color: 'var(--text-high)' }}
+                >
+                  {scanHeadline}
+                </p>
+              )}
+              {backtestSummary && (
+                <details className="group">
+                  <summary
+                    className="cursor-pointer terminal-text text-[11px] font-bold uppercase tracking-widest list-none flex items-center gap-2"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    <span aria-hidden className="inline-block transition-transform group-open:rotate-90" style={{ color: 'var(--text-low)' }}>▸</span>
+                    Full engine output
+                  </summary>
+                  <pre
+                    className="text-[12px] whitespace-pre-wrap mt-3 pl-1 border-l-2"
+                    style={{
+                      color: 'var(--text-mid)',
+                      fontFamily: 'var(--font-mono)',
+                      borderColor: 'var(--border)',
+                    }}
+                  >
+                    {backtestSummary}
+                  </pre>
+                </details>
+              )}
+            </Panel>
+          )}
+
+          {mode === 'backtest' && backtestTrace && backtestTrace.length > 0 && (
+            <Panel
+              title="Simulation timeline"
+              subtitle="Per-bar events: data, LangGraph signal, risk, execution (next-open fills)."
+            >
+              <BacktestTracePanel events={backtestTrace} />
+            </Panel>
+          )}
+
+          {mode === 'backtest' && !scanHeadline && !backtestSummary && isRunning && (
+            <Panel title="Backtest In Progress" subtitle="Engine status">
+              <div className="space-y-2 text-[12px]" style={{ color: 'var(--text-mid)' }}>
+                <p>
+                  Backtest is running. Summary and metrics appear after the engine completes.
+                </p>
+                <p>
+                  Current status: <span className="terminal-text" style={{ color: sc.color }}>{sc.label.toUpperCase()}</span>
+                </p>
+              </div>
+            </Panel>
+          )}
 
           {/* Pipeline */}
-          <PipelineStepper steps={steps} />
+          {mode !== 'backtest' && <PipelineStepper steps={steps} />}
 
           {/* Error */}
           {error && (
@@ -151,11 +317,19 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
 
           {/* Verdict */}
           {verdict && ticker && date && (
-            <VerdictBanner verdict={verdict} ticker={ticker} date={date} />
+            <VerdictBanner
+              verdict={verdict}
+              ticker={ticker}
+              date={date}
+              mode={mode}
+              endDate={endDate}
+            />
           )}
 
           {/* Phase tabs + reports */}
-          <PhaseTabs steps={steps} reports={reports} tokensByStep={tokensByStep} />
+          {mode !== 'backtest' && (
+            <PhaseTabs steps={steps} reports={reports} tokensByStep={tokensByStep} />
+          )}
         </div>
 
         <div className="space-y-3">
@@ -165,31 +339,75 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                 <span>Status</span>
                 <span className="terminal-text" style={{ color: sc.color }}>{sc.label.toUpperCase()}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>Steps completed</span>
-                <span className="terminal-text">{completedSteps}</span>
+              <div className="flex items-start justify-between gap-3">
+                <span className="shrink-0">LLM provider</span>
+                <span className="terminal-text text-right break-all text-[11px]" style={{ color: 'var(--text-high)' }} title={llmProvider ?? undefined}>
+                  {llmProvider ?? '—'}
+                </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>Steps running</span>
-                <span className="terminal-text">{runningSteps}</span>
+              <div className="flex items-start justify-between gap-3">
+                <span className="shrink-0">Deep think</span>
+                <span className="terminal-text text-right break-all text-[11px]" style={{ color: 'var(--text-high)' }} title={deepThinkLlm ?? undefined}>
+                  {deepThinkLlm ?? '—'}
+                </span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>Total output tokens</span>
-                <span className="terminal-text">{tokensTotal.out}</span>
+              <div className="flex items-start justify-between gap-3">
+                <span className="shrink-0">Quick think</span>
+                <span className="terminal-text text-right break-all text-[11px]" style={{ color: 'var(--text-high)' }} title={quickThinkLlm ?? undefined}>
+                  {quickThinkLlm ?? '—'}
+                </span>
               </div>
+              {isBacktest ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span>Backtest summary</span>
+                    <span className="terminal-text">{backtestSummary ? 'READY' : 'PENDING'}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Abort control</span>
+                    <span className="terminal-text">{isRunning ? (isAborting ? 'STOPPING' : 'AVAILABLE') : 'N/A'}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span>Steps completed</span>
+                    <span className="terminal-text">{completedSteps}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Steps running</span>
+                    <span className="terminal-text">{runningSteps}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Total output tokens</span>
+                    <span className="terminal-text">{tokensTotal.out}</span>
+                  </div>
+                </>
+              )}
             </div>
           </Panel>
 
           <Panel title="Workflow Guidance" subtitle="Operator checklist">
             <ul className="space-y-2 text-[12px]" style={{ color: 'var(--text-mid)' }}>
-              <li>Track pipeline completion before reading final verdict confidence.</li>
-              <li>Use diagnostics view to inspect token-intensive agent stages.</li>
-              <li>Escalate if any step remains running abnormally long.</li>
-              <li>Compare verdict with per-phase reports before execution decisions.</li>
+              {isBacktest ? (
+                <>
+                  <li>Wait for summary readiness before reading terminal outcome.</li>
+                  <li>Use Abort Run if execution remains active longer than expected.</li>
+                  <li>Review fills, final equity, and open positions together.</li>
+                  <li>Compare outcome with backtest period and configuration.</li>
+                </>
+              ) : (
+                <>
+                  <li>Track pipeline completion before reading final verdict confidence.</li>
+                  <li>Use diagnostics view to inspect token-intensive agent stages.</li>
+                  <li>Escalate if any step remains running abnormally long.</li>
+                  <li>Compare verdict with per-phase reports before execution decisions.</li>
+                </>
+              )}
             </ul>
           </Panel>
 
-          {viewMode === 'diagnostics' && (
+          {viewMode === 'diagnostics' && !isBacktest && (
             <Panel title="Token Diagnostics" subtitle="Per-step usage sample">
               <div className="space-y-1.5">
                 {Object.entries(tokensByStep)
@@ -211,6 +429,15 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
           )}
         </div>
       </div>
+      <AbortConfirmModal
+        open={showAbortModal}
+        ticker={ticker ?? 'this'}
+        onCancel={() => setShowAbortModal(false)}
+        onConfirm={() => {
+          setShowAbortModal(false)
+          void abortRun()
+        }}
+      />
     </div>
   )
 }

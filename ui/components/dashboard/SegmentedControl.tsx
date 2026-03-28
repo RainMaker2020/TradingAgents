@@ -10,6 +10,7 @@ type SegmentedControlProps = {
   ariaLabel: string
 }
 
+/** Same visual language as Profile presets (Fast / Balanced / Deep): btn-secondary + accent when active. */
 export default function SegmentedControl({
   segments,
   activeId,
@@ -17,7 +18,7 @@ export default function SegmentedControl({
   ariaLabel,
 }: SegmentedControlProps) {
   return (
-    <div className="ws-segmented" role="tablist" aria-label={ariaLabel}>
+    <div className="flex flex-wrap gap-2" role="tablist" aria-label={ariaLabel}>
       {segments.map((segment) => {
         const active = segment.id === activeId
         return (
@@ -26,7 +27,8 @@ export default function SegmentedControl({
             type="button"
             role="tab"
             aria-selected={active}
-            className={`ws-segment ${active ? 'ws-segment-active' : ''}`.trim()}
+            className="btn-secondary !h-[34px] !px-3 !py-0 text-xs"
+            style={active ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : undefined}
             onClick={() => onChange(segment.id)}
           >
             {segment.label}

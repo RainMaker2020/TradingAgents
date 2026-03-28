@@ -10,11 +10,18 @@ export function useRunHistory() {
   const [tick, setTick] = useState(0)
 
   useEffect(() => {
-    setLoading(true)
+    // Only block the page on the first load. Background refetches keep the table mounted
+    // so client state (filters, etc.) is not lost after abort or refresh.
+    if (tick === 0) setLoading(true)
     listRuns()
-      .then(setRuns)
+      .then((data) => {
+        setRuns(data)
+        setError(null)
+      })
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (tick === 0) setLoading(false)
+      })
   }, [tick])
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])

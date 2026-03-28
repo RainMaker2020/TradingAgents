@@ -132,7 +132,11 @@ export default function ChiefAnalystCard({ report, status, ticker, date, reports
 
       {status === 'done' && report && vm && (
         <>
-          <div className="px-6 py-5 space-y-5" style={{ color: 'var(--text-primary)' }}>
+          <div
+            className="px-6 py-5 space-y-5"
+            data-testid="chief-analyst-main"
+            style={{ color: 'var(--text-primary)' }}
+          >
             <div
               className="grid grid-cols-1 md:grid-cols-[auto,1fr] gap-4 items-start"
               style={{
@@ -241,7 +245,10 @@ export default function ChiefAnalystCard({ report, status, ticker, date, reports
             </footer>
           </div>
 
-          <div style={{ position: 'fixed', left: '-10000px', top: 0, width: '1024px', zIndex: -1 }}>
+          <div
+            aria-hidden
+            style={{ position: 'fixed', left: '-10000px', top: 0, width: '1024px', zIndex: -1 }}
+          >
             <ChiefAnalystPdfReport
               report={report}
               vm={vm}
