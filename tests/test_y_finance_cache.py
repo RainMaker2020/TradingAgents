@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
 from tradingagents.dataflows import y_finance
+
+_YFIN_CSV_HEADER_SUBSTR = ",Open,High,Low,Close,Adj Close,Volume"
 
 
 def test_get_yfin_data_online_uses_cache_when_file_exists(monkeypatch, tmp_path: Path):
@@ -29,7 +30,10 @@ def test_get_yfin_data_online_uses_cache_when_file_exists(monkeypatch, tmp_path:
 
     out = y_finance.get_YFin_data_online("AAPL", "2024-01-01", "2024-01-03")
     assert "# Data source: cache" in out
-    assert "2024-01-02,100,101,99,100.5,123" in out
+    assert "# Total records: 1" in out
+    assert "# As of:" in out
+    assert _YFIN_CSV_HEADER_SUBSTR not in out
+    assert "| 2024-01-02 |" in out
 
 
 def test_get_yfin_data_online_writes_cache_on_miss(monkeypatch, tmp_path: Path):
@@ -62,8 +66,11 @@ def test_get_yfin_data_online_writes_cache_on_miss(monkeypatch, tmp_path: Path):
     out = y_finance.get_YFin_data_online("AAPL", "2024-01-01", "2024-01-03")
     assert "# Stock data for AAPL from 2024-01-01 to 2024-01-03" in out
     assert "# Total records: 2" in out
+    assert "# Data source: online" in out
+    assert "# As of:" in out
+    assert _YFIN_CSV_HEADER_SUBSTR not in out
 
     cache_file = tmp_path / "AAPL-YFin-data-2024-01-01-2024-01-03.csv"
     assert cache_file.exists()
     cached_text = cache_file.read_text(encoding="utf-8")
-    assert ",Open,High,Low,Close,Adj Close,Volume" in cached_text
+    assert _YFIN_CSV_HEADER_SUBSTR in cached_text

@@ -321,6 +321,13 @@ class RunSummary(BaseModel):
     ticker: str
     date: str
     status: RunStatus
+    mode: Literal["graph", "backtest"] = Field(
+        default="graph",
+        description=(
+            "'graph' = LLM multi-agent pipeline; 'backtest' = execution engine / "
+            "simulated backtest loop."
+        ),
+    )
     decision: Optional[Literal["BUY", "SELL", "HOLD"]] = Field(
         default=None,
         description=(

@@ -11,7 +11,9 @@ async def test_create_run_returns_run_id():
             "ticker": "NVDA", "date": "2024-05-10"
         })
     assert response.status_code == 200
-    assert "id" in response.json()
+    body = response.json()
+    assert "id" in body
+    assert body.get("mode") == "graph"
 
 @pytest.mark.asyncio
 async def test_list_runs_empty_initially():

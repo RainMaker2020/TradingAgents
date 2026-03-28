@@ -56,6 +56,26 @@ function StatusDot({ decision }: { decision?: string }) {
   )
 }
 
+function RunSourceBadge({ mode }: { mode: RunSummary['mode'] | undefined }) {
+  const m = mode ?? 'graph'
+  const isBacktest = m === 'backtest'
+  return (
+    <span
+      className="terminal-text text-[10px] font-bold tracking-wide px-2 py-0.5 rounded"
+      style={{
+        fontFamily: 'var(--font-mono)',
+        letterSpacing: '0.06em',
+        background: isBacktest ? 'rgba(139, 92, 246, 0.12)' : 'rgba(34, 197, 94, 0.12)',
+        color: isBacktest ? 'var(--accent-light)' : 'var(--buy)',
+        border: `1px solid ${isBacktest ? 'rgba(139, 92, 246, 0.35)' : 'rgba(34, 197, 94, 0.35)'}`,
+      }}
+      title={isBacktest ? 'Execution engine backtest' : 'LLM agent graph'}
+    >
+      {isBacktest ? 'Backtest (Engine)' : 'Graph (LLM)'}
+    </span>
+  )
+}
+
 export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
   const [query, setQuery] = useState('')
   const [decisionFilter, setDecisionFilter] = useState<'all' | 'BUY' | 'SELL' | 'HOLD'>('all')
@@ -282,7 +302,7 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
           <thead>
             <tr>
               <th>Ticker</th>
-              <th>Date</th>
+              <th>Source</th>
               <th>Status</th>
               <th>Decision</th>
               <th>Created</th>
@@ -300,7 +320,9 @@ export default function RunHistoryTable({ runs, onAbortSuccess }: Props) {
                     </span>
                   </div>
                 </td>
-                <td className="terminal-text">{run.date}</td>
+                <td>
+                  <RunSourceBadge mode={run.mode} />
+                </td>
                 <td>
                   <span className="terminal-text text-[11px]" style={{
                     color: run.status === 'error' ? 'var(--sell)'

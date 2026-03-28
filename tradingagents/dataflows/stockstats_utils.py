@@ -4,6 +4,7 @@ from stockstats import wrap
 from typing import Annotated
 import os
 from .config import get_config
+from .yahoo_symbol import resolve_yahoo_ticker
 
 
 def _clean_dataframe(data: pd.DataFrame) -> pd.DataFrame:
@@ -43,16 +44,17 @@ class StockstatsUtils:
         # Ensure cache directory exists
         os.makedirs(config["data_cache_dir"], exist_ok=True)
 
+        ysym = resolve_yahoo_ticker(symbol)
         data_file = os.path.join(
             config["data_cache_dir"],
-            f"{symbol}-YFin-data-{start_date_str}-{end_date_str}.csv",
+            f"{ysym}-YFin-data-{start_date_str}-{end_date_str}.csv",
         )
 
         if os.path.exists(data_file):
             data = pd.read_csv(data_file, on_bad_lines="skip")
         else:
             data = yf.download(
-                symbol,
+                ysym,
                 start=start_date_str,
                 end=end_date_str,
                 multi_level_index=False,

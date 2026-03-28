@@ -81,6 +81,8 @@ export type RunSummary = {
   ticker: string
   date: string
   status: RunStatus
+  /** graph = LLM pipeline; backtest = execution engine (API always sends; omit in mocks = graph) */
+  mode?: 'graph' | 'backtest'
   decision: 'BUY' | 'SELL' | 'HOLD' | null
   created_at: string
 }

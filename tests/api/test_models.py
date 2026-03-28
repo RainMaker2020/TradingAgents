@@ -15,6 +15,16 @@ def test_run_summary_has_decision():
         status=RunStatus.COMPLETE, decision="BUY", created_at="2026-03-23T09:00:00"
     )
     assert summary.decision == "BUY"
+    assert summary.mode == "graph"
+
+
+def test_run_summary_backtest_mode():
+    summary = RunSummary(
+        id="abc123", ticker="NVDA", date="2024-05-10",
+        status=RunStatus.COMPLETE, mode="backtest", decision="HOLD",
+        created_at="2026-03-23T09:00:00",
+    )
+    assert summary.mode == "backtest"
 
 
 def test_settings_defaults():

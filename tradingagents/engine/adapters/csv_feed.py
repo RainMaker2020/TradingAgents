@@ -3,6 +3,7 @@
 from __future__ import annotations
 import glob
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterator, Union
@@ -10,26 +11,47 @@ from typing import Iterator, Union
 import pandas as pd
 
 from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.yahoo_symbol import cache_filename_prefixes, cache_miss_hint
 from tradingagents.engine.schemas.market import Bar
 from tradingagents.engine.schemas.orders import RejectionCode, RejectionReason
 
 UTC = timezone.utc
 
+_CACHE_CSV_RANGE = re.compile(
+    r"-YFin-data-(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})\.csv$",
+    re.IGNORECASE,
+)
+
+
+def _cache_csv_sort_key(path: str) -> tuple[date, int, float]:
+    """Prefer latest end-date in filename; tie-break by wider span, then mtime."""
+    name = os.path.basename(path)
+    m = _CACHE_CSV_RANGE.search(name)
+    if m:
+        start = datetime.strptime(m.group(1), "%Y-%m-%d").date()
+        end = datetime.strptime(m.group(2), "%Y-%m-%d").date()
+        span = (end - start).days
+        return (end, span, os.path.getmtime(path))
+    return (date.min, 0, os.path.getmtime(path))
+
 
 def _find_csv(symbol: str) -> str | None:
-    """Return the path of the newest cached CSV for symbol (by filename end-date).
+    """Return the path of the best cached CSV for symbol (latest filename end-date).
 
-    Tries the bare symbol first, then the yfinance index convention (^SYMBOL),
-    so that tickers like VIX match files named ^VIX-YFin-data-*.csv.
+    Tries the bare symbol, ``^SYMBOL`` (indices), and Yahoo aliases (e.g. BTC → BTC-USD)
+    so caches created with canonical Yahoo symbols still resolve when the user types a shorthand.
+
+    Filenames follow ``{prefix}-YFin-data-{start}-{end}.csv``. Lexicographic ``max`` on paths
+    is wrong when a short-range file starts with a recent year (e.g. ``2026-02-23-...`` sorts
+    after ``2011-03-28-...``) — we parse ``end`` (then span, then mtime) instead.
     """
     config = get_config()
     cache_dir = config["data_cache_dir"]
-    sym = symbol.upper()
-    for candidate in (sym, f"^{sym}"):
+    for candidate in cache_filename_prefixes(symbol):
         pattern = os.path.join(cache_dir, f"{candidate}-YFin-data-*.csv")
         matches = glob.glob(pattern)
         if matches:
-            return max(matches)  # lexicographic max → latest end-date
+            return max(matches, key=_cache_csv_sort_key)
     return None
 
 
@@ -82,11 +104,15 @@ class CsvDataFeed:
         self._symbol = symbol.upper()
         path = csv_path or _find_csv(symbol)
         if path is None:
-            raise FileNotFoundError(
+            extra = cache_miss_hint(symbol)
+            msg = (
                 f"No cached CSV found for '{symbol}'. "
                 "Run a TradingAgents analysis first to populate the data cache, "
                 "or pass csv_path explicitly."
             )
+            if extra:
+                msg = f"{msg} {extra}"
+            raise FileNotFoundError(msg)
 
         df = pd.read_csv(path, on_bad_lines="skip")
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")

@@ -23,6 +23,15 @@ def test_list_runs(tmp_path):
     assert len(runs) == 2
 
 
+def test_run_summary_mode_matches_config(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    g = store.create(RunConfig(ticker="NVDA", date="2024-05-10", mode="graph"))
+    b = store.create(RunConfig(ticker="AAPL", date="2024-05-09", mode="backtest"))
+    by_id = {r.id: r for r in store.list_all()}
+    assert by_id[g.id].mode == "graph"
+    assert by_id[b.id].mode == "backtest"
+
+
 def test_update_run_status(tmp_path):
     store = RunsStore(tmp_path / "test.sqlite")
     run = store.create(RunConfig(ticker="NVDA", date="2024-05-10"))

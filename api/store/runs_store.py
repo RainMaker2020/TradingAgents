@@ -77,6 +77,8 @@ class RunsStore:
             backtest_trace = self._parse_backtest_trace_column(raw_trace, run_id)
         else:
             backtest_trace = None
+        cfg_raw = row["config"]
+        parsed_config = RunConfig(**json.loads(cfg_raw)) if cfg_raw else None
         return RunResult(
             id=row["id"],
             ticker=row["ticker"],
@@ -84,7 +86,8 @@ class RunsStore:
             status=RunStatus(row["status"]),
             decision=row["decision"],
             created_at=row["created_at"],
-            config=RunConfig(**json.loads(row["config"])) if row["config"] else None,
+            mode=parsed_config.mode if parsed_config else "graph",
+            config=parsed_config,
             reports=json.loads(row["reports"]),
             error=row["error"],
             token_usage={
@@ -118,6 +121,7 @@ class RunsStore:
             date=config.date,
             status=RunStatus.QUEUED,
             created_at=now,
+            mode=config.mode,
             config=config,
         )
 

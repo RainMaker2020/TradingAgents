@@ -4,6 +4,6 @@
   "llm_provider": "deepseek",
   "max_debate_rounds": 1,
   "max_risk_discuss_rounds": 1,
-  "execution_mode": "graph",
+  "execution_mode": "backtest",
   "profile_preset": "fast"
 }
