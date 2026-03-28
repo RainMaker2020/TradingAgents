@@ -3,14 +3,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from tradingagents.engine.schemas.base import BaseSchema
-from tradingagents.engine.schemas.orders import FillResult, RejectionReason
+from tradingagents.engine.schemas.orders import ApprovedOrder, FillResult, RejectionReason
+from tradingagents.engine.schemas.signals import Signal
 
 
 class PortfolioState(BaseSchema):
     as_of: datetime
     cash: Decimal
-    positions: dict[str, Decimal]   # symbol → quantity; v1 long-only (qty >= 0)
-    cost_basis: dict[str, Decimal]  # symbol → average entry price
+    positions: dict[str, Decimal]      # symbol → quantity; v1 long-only (qty >= 0)
+    cost_basis: dict[str, Decimal]     # symbol → average entry price
+    realized_pnl: Decimal = Decimal("0")    # accumulated realized P&L from closed positions
+    total_fees_paid: Decimal = Decimal("0") # accumulated fees across all fills
 
 
 class PortfolioMetrics(BaseSchema):
@@ -19,7 +22,7 @@ class PortfolioMetrics(BaseSchema):
     unrealized_pnl: Decimal
     realized_pnl: Decimal
     total_fees_paid: Decimal
-    max_drawdown_pct: Decimal
+    max_drawdown_pct: Decimal | None = None  # None until equity-history tracking is implemented
     sharpe_ratio: float | None = None
 
 
@@ -37,6 +40,8 @@ class BacktestEvent(BaseSchema):
     timestamp: datetime                        # UTC; bar timestamp of the event
     symbol: str
     detail: str | None = None
+    signal: Signal | None = None               # populated for SIGNAL_GENERATED
+    order: ApprovedOrder | None = None         # populated for ORDER_APPROVED
     fill: FillResult | None = None             # populated for FILL_EXECUTED
     rejection: RejectionReason | None = None   # populated for SIGNAL_REJECTED,
                                                # ORDER_REJECTED, DATA_SKIPPED

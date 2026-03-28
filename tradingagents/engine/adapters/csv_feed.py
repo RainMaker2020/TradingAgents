@@ -17,14 +17,20 @@ UTC = timezone.utc
 
 
 def _find_csv(symbol: str) -> str | None:
-    """Return the path of the newest cached CSV for symbol (by filename end-date)."""
+    """Return the path of the newest cached CSV for symbol (by filename end-date).
+
+    Tries the bare symbol first, then the yfinance index convention (^SYMBOL),
+    so that tickers like VIX match files named ^VIX-YFin-data-*.csv.
+    """
     config = get_config()
     cache_dir = config["data_cache_dir"]
-    pattern = os.path.join(cache_dir, f"{symbol.upper()}-YFin-data-*.csv")
-    matches = glob.glob(pattern)
-    if not matches:
-        return None
-    return max(matches)  # lexicographic max → latest end-date
+    sym = symbol.upper()
+    for candidate in (sym, f"^{sym}"):
+        pattern = os.path.join(cache_dir, f"{candidate}-YFin-data-*.csv")
+        matches = glob.glob(pattern)
+        if matches:
+            return max(matches)  # lexicographic max → latest end-date
+    return None
 
 
 class CsvMarketCalendar:

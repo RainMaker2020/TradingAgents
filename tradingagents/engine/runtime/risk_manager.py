@@ -133,7 +133,8 @@ class ConcreteRiskManager(RiskManager):
                     code=RejectionCode.EXCEEDS_POSITION_LIMIT,
                     detail=f"{signal.symbol} already at or above max_position_pct ({config.max_position_pct})",
                 )
-            qty = min(qty, (headroom / price).quantize(Decimal("0.000001")))
+            # Match step 4: marginal BUY cost per share uses effective_price when fee_bps applies.
+            qty = min(qty, (headroom / effective_price).quantize(Decimal("0.000001")))
 
             # 5b-BUY. Optional absolute max shares per symbol (total position cap).
             if config.max_position_size is not None:

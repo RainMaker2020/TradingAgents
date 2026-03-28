@@ -240,7 +240,7 @@ class TestPortfolioSchemas:
         metrics = PortfolioMetrics(
             as_of=now, total_equity=Decimal("100000"),
             unrealized_pnl=Decimal("0"), realized_pnl=Decimal("0"),
-            total_fees_paid=Decimal("0"), max_drawdown_pct=Decimal("0"),
+            total_fees_paid=Decimal("0"), max_drawdown_pct=None,
         )
         result = BacktestResult(
             symbol="AAPL",
@@ -252,6 +252,47 @@ class TestPortfolioSchemas:
             metrics=metrics,
         )
         assert isinstance(result.events, tuple)
+
+    def test_backtest_event_carries_signal_and_order(self):
+        from uuid import uuid4
+
+        from tradingagents.engine.schemas.orders import ApprovedOrder, FillModel, Order
+        from tradingagents.engine.schemas.signals import Signal, SignalDirection
+
+        now = datetime(2026, 1, 2, 15, 0, 0, tzinfo=self.UTC)
+        sig = Signal(
+            symbol="AAPL",
+            direction=SignalDirection.BUY,
+            confidence=0.9,
+            reasoning="MA cross",
+            generated_at=now,
+            source_bar_timestamp=now,
+        )
+        oid = uuid4()
+        ord_inner = Order(
+            id=oid,
+            symbol="AAPL",
+            direction=SignalDirection.BUY,
+            quantity=Decimal("10"),
+            created_at=now,
+            fill_model=FillModel.NEXT_OPEN,
+        )
+        approved = ApprovedOrder(order=ord_inner, approved_at=now, approved_quantity=Decimal("10"))
+        ev_sig = BacktestEvent(
+            event_type=BacktestEventType.SIGNAL_GENERATED,
+            timestamp=now,
+            symbol="AAPL",
+            signal=sig,
+        )
+        assert ev_sig.signal is not None and ev_sig.signal.reasoning == "MA cross"
+        ev_ord = BacktestEvent(
+            event_type=BacktestEventType.ORDER_APPROVED,
+            timestamp=now,
+            symbol="AAPL",
+            order=approved,
+        )
+        assert ev_ord.order is not None
+        assert ev_ord.order.approved_quantity == Decimal("10")
 
 
 class TestSimulationConfig:

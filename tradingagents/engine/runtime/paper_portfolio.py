@@ -17,6 +17,8 @@ class InMemoryPortfolio(Portfolio):
         cost_basis = dict(state.cost_basis)
         cash = state.cash
         notional = fill.filled_quantity * fill.fill_price
+        realized_pnl = state.realized_pnl
+        total_fees_paid = state.total_fees_paid + fill.fees
 
         if fill.direction == SignalDirection.BUY:
             current_qty = positions.get(fill.symbol, Decimal("0"))
@@ -29,6 +31,8 @@ class InMemoryPortfolio(Portfolio):
             cash = cash - notional - fill.fees
         else:  # SELL
             current_qty = positions.get(fill.symbol, Decimal("0"))
+            entry_price = cost_basis.get(fill.symbol, Decimal("0"))
+            realized_pnl += fill.filled_quantity * (fill.fill_price - entry_price) - fill.fees
             new_qty = max(Decimal("0"), current_qty - fill.filled_quantity)
             if new_qty == Decimal("0"):
                 positions.pop(fill.symbol, None)
@@ -42,6 +46,8 @@ class InMemoryPortfolio(Portfolio):
             cash=cash,
             positions=positions,
             cost_basis=cost_basis,
+            realized_pnl=realized_pnl,
+            total_fees_paid=total_fees_paid,
         )
 
     def mark_to_market(
@@ -60,7 +66,7 @@ class InMemoryPortfolio(Portfolio):
             as_of=state.as_of,
             total_equity=total_equity,
             unrealized_pnl=unrealized_pnl,
-            realized_pnl=Decimal("0"),   # v1: realized PnL tracking deferred
-            total_fees_paid=Decimal("0"), # v1: fee tracking deferred
-            max_drawdown_pct=Decimal("0"), # v1: drawdown tracking deferred
+            realized_pnl=state.realized_pnl,
+            total_fees_paid=state.total_fees_paid,
+            max_drawdown_pct=None,  # requires equity-history tracking; not yet implemented
         )

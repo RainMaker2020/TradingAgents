@@ -112,6 +112,25 @@ class TestBacktestLoopSmoke:
         skip_events = [e for e in result.events if e.event_type == BacktestEventType.DATA_SKIPPED]
         assert len(skip_events) >= 1
 
+    def test_data_skipped_timestamps_follow_calendar_days(self):
+        """Consecutive missing days must get distinct day-accurate timestamps."""
+        feed = FakeDataFeed([])  # no bars for any day in range
+        strategy = FakeStrategyAgent([make_signal()])
+        risk = FakeRiskManager()
+        simulator = ConcreteExecutionSimulator()
+        portfolio = InMemoryPortfolio()
+        end = date(2026, 1, 4)
+        result = BacktestLoop(feed, strategy, risk, simulator, portfolio, CFG).run(
+            "AAPL", START, end
+        )
+
+        skip_events = [e for e in result.events if e.event_type == BacktestEventType.DATA_SKIPPED]
+        assert [e.timestamp.date() for e in skip_events] == [
+            date(2026, 1, 2),
+            date(2026, 1, 3),
+            date(2026, 1, 4),
+        ]
+
     def test_signal_rejected_event_emitted_when_strategy_rejects(self):
         """When strategy returns RejectionReason, loop emits SIGNAL_REJECTED and continues."""
         bars = make_bars(3)
