@@ -228,3 +228,9 @@ __marimo__/
 node_modules/
 # Git worktrees
 .worktrees/
+
+# Local agent / skill plugin cache (not project source)
+.superpowers/
+
+# Generated evaluation dumps (large JSON)
+eval_results/
