@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from api.models.run import RunConfig, RunResult, RunSummary
 from api.services.run_service import RunService
@@ -21,8 +21,14 @@ def list_runs():
 
 
 @router.get("/{run_id}", response_model=RunResult)
-def get_run(run_id: str):
-    run = _store.get(run_id)
+def get_run(
+    run_id: str,
+    include_backtest_trace: bool = Query(
+        False,
+        description="When true, include and parse the stored backtest event trace (can be large).",
+    ),
+):
+    run = _store.get(run_id, include_backtest_trace=include_backtest_trace)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return run

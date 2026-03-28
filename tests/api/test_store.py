@@ -1,3 +1,4 @@
+import json
 import pytest
 import sqlite3 as _sqlite3
 from api.store.runs_store import RunsStore
@@ -51,6 +52,76 @@ def test_clear_reports(tmp_path):
     store.add_report(run.id, "market_analyst:0", "bullish")
     store.clear_reports(run.id)
     assert store.get(run.id).reports == {}
+
+
+def test_set_and_get_backtest_trace(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2024-05-10"))
+    trace = [{"event_type": "SIGNAL_GENERATED", "symbol": "NVDA", "signal": {"direction": "HOLD"}}]
+    store.set_backtest_trace(run.id, json.dumps(trace))
+    assert store.get(run.id).backtest_trace is None
+    fetched = store.get(run.id, include_backtest_trace=True)
+    assert fetched.backtest_trace == trace
+
+
+def test_corrupt_backtest_trace_does_not_break_get(tmp_path, caplog):
+    import logging
+
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2024-05-10"))
+    store.set_backtest_trace(run.id, "not-valid-json{")
+    with caplog.at_level(logging.WARNING):
+        fetched = store.get(run.id, include_backtest_trace=True)
+    assert fetched is not None
+    assert fetched.backtest_trace is None
+    assert "Invalid backtest_trace JSON" in caplog.text
+
+
+def test_non_list_backtest_trace_treated_as_absent(tmp_path, caplog):
+    import logging
+
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2024-05-10"))
+    store.set_backtest_trace(run.id, json.dumps({"oops": 1}))
+    with caplog.at_level(logging.WARNING):
+        fetched = store.get(run.id, include_backtest_trace=True)
+    assert fetched.backtest_trace is None
+    assert "not a JSON array" in caplog.text
+
+
+def test_clear_backtest_trace(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2024-05-10"))
+    store.set_backtest_trace(run.id, json.dumps([{"k": 1}]))
+    store.clear_backtest_trace(run.id)
+    assert store.get(run.id).backtest_trace is None
+
+
+def test_new_run_has_no_backtest_trace(tmp_path):
+    store = RunsStore(tmp_path / "test.sqlite")
+    run = store.create(RunConfig(ticker="NVDA", date="2024-05-10"))
+    assert store.get(run.id).backtest_trace is None
+
+
+def test_migration_adds_backtest_trace_column_to_existing_db(tmp_path):
+    """DB created without backtest_trace gets the column added on RunsStore.__init__."""
+    db_path = tmp_path / "legacy.sqlite"
+    conn = _sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE runs (
+            id TEXT PRIMARY KEY, ticker TEXT NOT NULL, date TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued', decision TEXT,
+            created_at TEXT NOT NULL, config TEXT,
+            reports TEXT NOT NULL DEFAULT '{}', error TEXT,
+            token_usage TEXT NOT NULL DEFAULT '{}'
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    store = RunsStore(db_path)
+    cols = {row["name"] for row in store._conn.execute("PRAGMA table_info(runs)")}
+    assert "backtest_trace" in cols
 
 
 def test_update_decision(tmp_path):

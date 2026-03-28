@@ -1,7 +1,9 @@
 {
-  "deep_think_llm": "claude-opus-4-6",
-  "quick_think_llm": "claude-haiku-4-5-20251001",
-  "llm_provider": "anthropic",
+  "deep_think_llm": "deepseek-reasoner",
+  "quick_think_llm": "deepseek-chat",
+  "llm_provider": "deepseek",
   "max_debate_rounds": 2,
-  "max_risk_discuss_rounds": 2
+  "max_risk_discuss_rounds": 2,
+  "execution_mode": "graph",
+  "profile_preset": "balanced"
 }

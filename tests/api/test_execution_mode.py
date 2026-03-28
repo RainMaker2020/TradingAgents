@@ -194,7 +194,7 @@ class TestBacktestPathConsumesSimCfg:
                     unrealized_pnl=Decimal("0"),
                     realized_pnl=Decimal("0"),
                     total_fees_paid=Decimal("0"),
-                    max_drawdown_pct=Decimal("0"),
+                    max_drawdown_pct=None,
                 )
                 return BacktestResult(
                     symbol="AAPL",
@@ -208,17 +208,15 @@ class TestBacktestPathConsumesSimCfg:
 
         fake_run_id = "run-test-backtest"
 
-        with patch("api.services.run_service.RunService._run_pipeline",
-                   wraps=lambda self_inner, rid, cfg, ce: None):
-            pass  # don't actually patch _run_pipeline here
-
         # Call _run_backtest_pipeline directly with a mocked BacktestLoop
         sim_cfg = svc._normalize_sim_config(config)
 
-        with patch("tradingagents.engine.runtime.backtest_loop.BacktestLoop", FakeBacktestLoop), \
-             patch("tradingagents.engine.adapters.csv_feed.CsvDataFeed") as mock_feed:
+        with patch("api.services.run_service.BacktestLoop", FakeBacktestLoop), \
+             patch("tradingagents.engine.adapters.csv_feed.CsvDataFeed") as mock_feed, \
+             patch("tradingagents.engine.adapters.langgraph_strategy.LangGraphStrategyAdapter") as mock_strategy:
             # CsvDataFeed raises FileNotFoundError by default; make it succeed
             mock_feed.return_value = MagicMock()
+            mock_strategy.return_value = MagicMock(close=MagicMock())
             svc._run_backtest_pipeline(fake_run_id, config, sim_cfg, cancel)
 
         assert len(captured_cfg) == 1
@@ -226,6 +224,9 @@ class TestBacktestPathConsumesSimCfg:
         assert cfg_received.initial_cash == expected_cash
         assert cfg_received.max_position_pct == expected_max_pos   # ratio, not percent
         assert cfg_received.slippage_bps == Decimal("3")
+        strategy_kwargs = mock_strategy.call_args.kwargs
+        assert "should_cancel" in strategy_kwargs
+        assert callable(strategy_kwargs["should_cancel"])
 
     def test_backtest_path_errors_gracefully_on_missing_csv(self):
         """FileNotFoundError from CsvDataFeed writes error to store, not a crash."""

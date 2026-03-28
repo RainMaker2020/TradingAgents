@@ -459,6 +459,191 @@ def test_stream_events_replays_partial_reports_for_aborted_run(store):
     assert events[-1]["event"] == "run:aborted"
 
 
+class TestBacktestMetricsReport:
+    """Tests for the backtest_metrics:0 structured JSON report."""
+
+    def _make_fake_backtest_loop(self, events=()):
+        events = tuple(events)
+
+        class FakeBacktestLoop:
+            def __init__(self, feed, strategy, risk, simulator, portfolio, config):
+                pass
+
+            def run(self, ticker, start, end):
+                from tradingagents.engine.schemas.portfolio import (
+                    BacktestResult, PortfolioState, PortfolioMetrics,
+                )
+                from datetime import date as _date, datetime, timezone
+                from decimal import Decimal
+                now = datetime(2024, 1, 2, tzinfo=timezone.utc)
+                state = PortfolioState(
+                    as_of=now, cash=Decimal("95000"), positions={"AAPL": Decimal("10")},
+                    cost_basis={"AAPL": Decimal("500")},
+                )
+                metrics = PortfolioMetrics(
+                    as_of=now,
+                    total_equity=Decimal("96500"),
+                    unrealized_pnl=Decimal("1500"),
+                    realized_pnl=Decimal("200"),
+                    total_fees_paid=Decimal("5"),
+                    max_drawdown_pct=None,
+                )
+                return BacktestResult(
+                    symbol="AAPL",
+                    start=_date(2024, 1, 2),
+                    end=_date(2024, 1, 10),
+                    initial_state=state,
+                    final_state=state,
+                    events=events,
+                    metrics=metrics,
+                )
+        return FakeBacktestLoop
+
+    def _run_backtest(self, service, store, events=()):
+        from unittest.mock import MagicMock, patch
+        import threading
+        from api.models.run import RunConfig, SimulationConfigSchema
+        from api.store.runs_store import RunsStore
+
+        config = RunConfig(
+            ticker="AAPL",
+            date="2024-01-02",
+            mode="backtest",
+            end_date="2024-01-10",
+            simulation_config={"initial_cash": 100000, "max_position_pct": 10},
+        )
+        run = store.create(config)
+        assert store.try_claim_run(run.id) is True
+
+        sim_cfg = service._normalize_sim_config(config)
+        cancel = threading.Event()
+        FakeBacktestLoop = self._make_fake_backtest_loop(events)
+
+        with patch("api.services.run_service.BacktestLoop", FakeBacktestLoop), \
+             patch("tradingagents.engine.adapters.csv_feed.CsvDataFeed") as mock_feed, \
+             patch("tradingagents.engine.adapters.langgraph_strategy.LangGraphStrategyAdapter") as mock_strategy:
+            mock_feed.return_value = MagicMock()
+            mock_strategy.return_value = MagicMock(close=MagicMock())
+            service._run_backtest_pipeline(run.id, config, sim_cfg, cancel)
+
+        return run.id
+
+    def test_backtest_stores_headline_report(self, service, store):
+        """Layer 2: one-line headline stored alongside metrics (same facts)."""
+        run_id = self._run_backtest(service, store)
+        reports = store.get(run_id).reports
+        assert "backtest_headline:0" in reports
+        headline = reports["backtest_headline:0"]
+        assert "AAPL" in headline
+        assert "fills" in headline.lower()
+        assert "Final" in headline
+
+    def test_backtest_stores_metrics_report(self, service, store):
+        """After a backtest run, backtest_metrics:0 is stored with valid JSON."""
+        import json
+        run_id = self._run_backtest(service, store)
+        reports = store.get(run_id).reports
+        assert "backtest_metrics:0" in reports
+        # Must be valid JSON
+        parsed = json.loads(reports["backtest_metrics:0"])
+        assert isinstance(parsed, dict)
+
+    def test_backtest_metrics_json_has_expected_keys(self, service, store):
+        """The stored JSON has all required BacktestMetricsPayload fields."""
+        import json
+        run_id = self._run_backtest(service, store)
+        reports = store.get(run_id).reports
+        assert "backtest_metrics:0" in reports
+
+        parsed = json.loads(reports["backtest_metrics:0"])
+
+        required_keys = {
+            "initial_cash", "final_equity", "total_return_pct",
+            "unrealized_pnl", "realized_pnl", "total_fees_paid",
+            "fill_count", "max_drawdown_pct", "as_of", "positions",
+        }
+        for key in required_keys:
+            assert key in parsed, f"Missing key: {key}"
+
+        assert parsed["fill_count"] == 0
+        assert parsed["positions"] == {"AAPL": "10"}
+        assert parsed["max_drawdown_pct"] is None
+
+    def test_backtest_persists_trace_with_signal_and_order(self, service, store):
+        from datetime import datetime, timezone
+        from decimal import Decimal
+        from uuid import uuid4
+
+        from tradingagents.engine.schemas.orders import ApprovedOrder, FillModel, Order
+        from tradingagents.engine.schemas.portfolio import BacktestEvent, BacktestEventType
+        from tradingagents.engine.schemas.signals import Signal, SignalDirection
+
+        now = datetime(2024, 1, 2, 21, 0, 0, tzinfo=timezone.utc)
+        oid = uuid4()
+        sig = Signal(
+            symbol="AAPL",
+            direction=SignalDirection.BUY,
+            confidence=0.85,
+            reasoning="test reasoning",
+            generated_at=now,
+            source_bar_timestamp=now,
+        )
+        inner = Order(
+            id=oid,
+            symbol="AAPL",
+            direction=SignalDirection.BUY,
+            quantity=Decimal("5"),
+            created_at=now,
+            fill_model=FillModel.NEXT_OPEN,
+        )
+        approved = ApprovedOrder(
+            order=inner, approved_at=now, approved_quantity=Decimal("5"),
+        )
+        ev_sig = BacktestEvent(
+            event_type=BacktestEventType.SIGNAL_GENERATED,
+            timestamp=now,
+            symbol="AAPL",
+            signal=sig,
+        )
+        ev_ord = BacktestEvent(
+            event_type=BacktestEventType.ORDER_APPROVED,
+            timestamp=now,
+            symbol="AAPL",
+            order=approved,
+        )
+        run_id = self._run_backtest(service, store, events=(ev_sig, ev_ord))
+        assert store.get(run_id).backtest_trace is None
+        trace = store.get(run_id, include_backtest_trace=True).backtest_trace
+        assert trace is not None
+        assert len(trace) == 2
+        assert trace[0]["event_type"] == "SIGNAL_GENERATED"
+        assert trace[0]["signal"]["direction"] == "BUY"
+        assert trace[0]["signal"]["reasoning"] == "test reasoning"
+        assert trace[1]["event_type"] == "ORDER_APPROVED"
+        assert trace[1]["order"]["approved_quantity"] == "5"
+        assert trace[1]["order"]["order"]["id"] == str(oid)
+
+    def test_backtest_metrics_payload_null_total_return_when_no_basis(self):
+        """total_return_pct may be None when initial cash is zero (division undefined)."""
+        import json
+        from api.models.backtest import BacktestMetricsPayload
+
+        p = BacktestMetricsPayload(
+            initial_cash=0.0,
+            final_equity=0.0,
+            total_return_pct=None,
+            unrealized_pnl=0.0,
+            realized_pnl=0.0,
+            total_fees_paid=0.0,
+            fill_count=0,
+            max_drawdown_pct=None,
+            as_of=None,
+            positions={},
+        )
+        parsed = json.loads(p.model_dump_json())
+        assert parsed["total_return_pct"] is None
+
+
 def test_pipeline_continues_after_sse_disconnect(service, store):
     """When the SSE connection closes mid-run (client navigates away), the background
     pipeline thread must continue and write all results to the store — no freezing."""

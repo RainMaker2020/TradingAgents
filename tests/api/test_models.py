@@ -21,6 +21,8 @@ def test_settings_defaults():
     s = Settings()
     assert s.deep_think_llm == "gpt-5.2"
     assert s.max_debate_rounds == 1
+    assert s.execution_mode == "graph"
+    assert s.profile_preset is None
 
 
 def test_run_config_rejects_invalid_quick_model_for_provider():

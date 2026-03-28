@@ -1,12 +1,15 @@
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from api.models.run import RunConfig, RunResult, RunStatus, TokenUsage
+
+logger = logging.getLogger(__name__)
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -40,10 +43,40 @@ class RunsStore:
             self._conn.execute(
                 "ALTER TABLE runs ADD COLUMN token_usage TEXT NOT NULL DEFAULT '{}'"
             )
+        if "backtest_trace" not in existing_cols:
+            self._conn.execute(
+                "ALTER TABLE runs ADD COLUMN backtest_trace TEXT"
+            )
         self._conn.commit()
         self._lock = Lock()
 
-    def _row_to_run(self, row: sqlite3.Row) -> RunResult:
+    @staticmethod
+    def _parse_backtest_trace_column(raw: str | None, run_id: str) -> list[dict[str, Any]] | None:
+        if not raw:
+            return None
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning(
+                "Invalid backtest_trace JSON for run %s; treating as absent", run_id
+            )
+            return None
+        if not isinstance(parsed, list):
+            logger.warning(
+                "backtest_trace for run %s is not a JSON array; treating as absent", run_id
+            )
+            return None
+        return parsed
+
+    def _row_to_run(
+        self, row: sqlite3.Row, *, include_backtest_trace: bool = False
+    ) -> RunResult:
+        run_id = row["id"]
+        raw_trace = row["backtest_trace"] if "backtest_trace" in row.keys() else None
+        if include_backtest_trace:
+            backtest_trace = self._parse_backtest_trace_column(raw_trace, run_id)
+        else:
+            backtest_trace = None
         return RunResult(
             id=row["id"],
             ticker=row["ticker"],
@@ -58,6 +91,7 @@ class RunsStore:
                 k: TokenUsage(**v)
                 for k, v in json.loads(row["token_usage"] or "{}").items()
             },
+            backtest_trace=backtest_trace,
         )
 
     def create(self, config: RunConfig) -> RunResult:
@@ -104,19 +138,25 @@ class RunsStore:
             self._conn.commit()
         return claimed
 
-    def get(self, run_id: str) -> Optional[RunResult]:
+    def get(
+        self, run_id: str, *, include_backtest_trace: bool = False
+    ) -> Optional[RunResult]:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM runs WHERE id = ?", (run_id,)
             ).fetchone()
-        return self._row_to_run(row) if row else None
+        return (
+            self._row_to_run(row, include_backtest_trace=include_backtest_trace)
+            if row
+            else None
+        )
 
     def list_all(self) -> list[RunResult]:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM runs ORDER BY created_at DESC"
             ).fetchall()
-        return [self._row_to_run(row) for row in rows]
+        return [self._row_to_run(row, include_backtest_trace=False) for row in rows]
 
     def update_status(self, run_id: str, status: RunStatus) -> None:
         with self._lock:
@@ -162,6 +202,23 @@ class RunsStore:
         with self._lock:
             self._conn.execute(
                 "UPDATE runs SET reports = '{}' WHERE id = ?",
+                (run_id,),
+            )
+            self._conn.commit()
+
+    def set_backtest_trace(self, run_id: str, trace_json: str) -> None:
+        """Persist serialized BacktestEvent list (JSON array). Backtest runs only."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE runs SET backtest_trace = ? WHERE id = ?",
+                (trace_json, run_id),
+            )
+            self._conn.commit()
+
+    def clear_backtest_trace(self, run_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE runs SET backtest_trace = NULL WHERE id = ?",
                 (run_id,),
             )
             self._conn.commit()

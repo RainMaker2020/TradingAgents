@@ -4,7 +4,8 @@ import threading
 from collections import defaultdict
 from typing import Generator
 from api.store.runs_store import RunsStore
-from api.models.run import RunConfig, RunStatus
+from api.utils.backtest_trace import serialize_backtest_trace
+from api.models.run import RunConfig, RunResult, RunStatus
 from api.callbacks.token_handler import TokenCallbackHandler
 
 logger = logging.getLogger(__name__)
@@ -18,9 +19,55 @@ except ImportError:
 
 from tradingagents.engine.schemas.config import SimulationConfig
 from tradingagents.engine.schemas.config_input import SimulationConfigInput
+from tradingagents.engine.runtime.backtest_loop import BacktestLoop
 
 
 class RunService:
+    def _build_ta_config(self, config: RunConfig) -> dict:
+        """Build TradingAgents config dict from a RunConfig."""
+        ta_config = DEFAULT_CONFIG.copy()
+        ta_config["llm_provider"]            = config.llm_provider
+        ta_config["deep_think_llm"]          = config.deep_think_llm
+        ta_config["quick_think_llm"]         = config.quick_think_llm
+        ta_config["max_debate_rounds"]       = config.max_debate_rounds
+        ta_config["max_risk_discuss_rounds"] = config.max_risk_discuss_rounds
+        return ta_config
+
+    def _replay_reports(
+        self, snapshot: RunResult, seen_keys: set[str] | None = None
+    ) -> Generator[dict, None, None]:
+        """Yield agent:start / agent:complete events for each report in snapshot.
+
+        When ``seen_keys`` is provided (poll path), already-seen keys are
+        skipped and newly emitted keys are added to the set.
+        When ``seen_keys`` is None (completed/aborted replay), all keys are iterated.
+        """
+        token_usage = {k: v.model_dump() for k, v in (snapshot.token_usage or {}).items()}
+        for key, report in snapshot.reports.items():
+            if seen_keys is not None and key in seen_keys:
+                continue
+            if ":" not in key:
+                logger.warning(
+                    "Skipping malformed report key %r for run", key
+                )
+                continue
+            step_key, turn_str = key.rsplit(":", 1)
+            if not turn_str.isdigit():
+                logger.warning(
+                    "Skipping report key with non-numeric turn %r", key
+                )
+                continue
+            if seen_keys is not None:
+                seen_keys.add(key)
+            turn = int(turn_str)
+            raw = token_usage.get(key, {"tokens_in": 0, "tokens_out": 0})
+            yield {"event": "agent:start",    "data": {"step": step_key, "turn": turn}}
+            yield {"event": "agent:complete", "data": {
+                "step": step_key, "turn": turn, "report": report,
+                "tokens_in": raw.get("tokens_in", 0),
+                "tokens_out": raw.get("tokens_out", 0),
+            }}
+
     def __init__(self, store: RunsStore):
         self._store = store
         self._cancel_events: dict[str, threading.Event] = {}
@@ -101,12 +148,7 @@ class RunService:
         uses its own defaults for these parameters.
         """
         try:
-            ta_config = DEFAULT_CONFIG.copy()
-            ta_config["llm_provider"]            = config.llm_provider
-            ta_config["deep_think_llm"]          = config.deep_think_llm
-            ta_config["quick_think_llm"]         = config.quick_think_llm
-            ta_config["max_debate_rounds"]       = config.max_debate_rounds
-            ta_config["max_risk_discuss_rounds"] = config.max_risk_discuss_rounds
+            ta_config = self._build_ta_config(config)
 
             token_handler = TokenCallbackHandler()
             ta = TradingAgentsGraph(
@@ -146,14 +188,16 @@ class RunService:
     ) -> None:
         """Backtest execution path: BacktestLoop against cached CSV data.
 
-        Uses MA-crossover strategy (long-only, no LLM calls).  ``sim_cfg`` is
-        passed directly to BacktestLoop — cash, slippage, fees, and position
-        limits all come from the normalized engine config.
+        Uses LangGraphStrategyAdapter so backtest runs benefit from:
+        - engine-level signal cache (SQLite read-through),
+        - TradingAgentsGraph checkpoints,
+        - the same analyst/model config used by graph mode.
+        ``sim_cfg`` is passed directly to BacktestLoop — cash, slippage, fees,
+        and position limits all come from the normalized engine config.
         """
         from datetime import date
         from tradingagents.engine.adapters.csv_feed import CsvDataFeed
-        from tradingagents.engine.adapters.toy_strategy import MovingAverageCrossStrategy
-        from tradingagents.engine.runtime.backtest_loop import BacktestLoop
+        from tradingagents.engine.adapters.langgraph_strategy import LangGraphStrategyAdapter
         from tradingagents.engine.runtime.paper_portfolio import InMemoryPortfolio
         from tradingagents.engine.runtime.simulator import ConcreteExecutionSimulator
         from tradingagents.engine.runtime.risk_manager import ConcreteRiskManager
@@ -172,17 +216,26 @@ class RunService:
             if cancel_event.is_set():
                 return
 
-            strategy = MovingAverageCrossStrategy(
-                short_window=5, long_window=20, confidence=0.8, long_only=True
+            ta_config = self._build_ta_config(config)
+
+            strategy = LangGraphStrategyAdapter(
+                selected_analysts=config.enabled_analysts
+                or ["market", "news", "fundamentals", "social"],
+                config=ta_config,
+                confidence=0.8,  # signal confidence emitted by the adapter (not the risk gate threshold)
+                should_cancel=cancel_event.is_set,
             )
-            result = BacktestLoop(
-                feed=feed,
-                strategy=strategy,
-                risk=ConcreteRiskManager(),
-                simulator=ConcreteExecutionSimulator(),
-                portfolio=InMemoryPortfolio(),
-                config=sim_cfg,          # ← normalized engine config, not percent values
-            ).run(config.ticker, start, end)
+            try:
+                result = BacktestLoop(
+                    feed=feed,
+                    strategy=strategy,
+                    risk=ConcreteRiskManager(),
+                    simulator=ConcreteExecutionSimulator(),
+                    portfolio=InMemoryPortfolio(),
+                    config=sim_cfg,          # ← normalized engine config, not percent values
+                ).run(config.ticker, start, end)
+            finally:
+                strategy.close()
 
             if cancel_event.is_set():
                 return
@@ -191,7 +244,13 @@ class RunService:
             fills = [e for e in result.events if e.event_type == BacktestEventType.FILL_EXECUTED]
             m = result.metrics
             pnl = float(m.total_equity) - float(sim_cfg.initial_cash)
-            pnl_pct = pnl / float(sim_cfg.initial_cash) * 100
+            initial_cash_f = float(sim_cfg.initial_cash)
+            pnl_pct = (pnl / initial_cash_f * 100) if initial_cash_f != 0.0 else None
+            ret_line = (
+                f"({pnl_pct:+.2f}%)\n"
+                if pnl_pct is not None
+                else "(N/A%)\n"
+            )
             summary = (
                 f"Backtest: {config.ticker}  {start} → {end}\n"
                 f"Config:   cash=${float(sim_cfg.initial_cash):,.0f}  "
@@ -200,11 +259,31 @@ class RunService:
                 f"max_pos={float(sim_cfg.max_position_pct):.0%}\n"
                 f"\n"
                 f"Fills:         {len(fills)}\n"
-                f"Final equity:  ${float(m.total_equity):,.2f}  ({pnl_pct:+.2f}%)\n"
+                f"Final equity:  ${float(m.total_equity):,.2f}  {ret_line}"
                 f"Unrealized P&L: ${float(m.unrealized_pnl):,.2f}\n"
                 f"Open positions: {dict(result.final_state.positions) or 'none'}\n"
             )
             self._store.add_report(run_id, "backtest_summary:0", summary)
+
+            # Emit structured metrics report for frontend display
+            from api.models.backtest import BacktestMetricsPayload, format_backtest_headline
+            metrics_payload = BacktestMetricsPayload(
+                initial_cash=float(sim_cfg.initial_cash),
+                final_equity=float(m.total_equity),
+                total_return_pct=pnl_pct,
+                unrealized_pnl=float(m.unrealized_pnl),
+                realized_pnl=float(m.realized_pnl),
+                total_fees_paid=float(m.total_fees_paid),
+                fill_count=len(fills),
+                max_drawdown_pct=float(m.max_drawdown_pct) if m.max_drawdown_pct is not None else None,
+                as_of=m.as_of.isoformat() if m.as_of else None,
+                positions={sym: str(qty) for sym, qty in result.final_state.positions.items()},
+            )
+            self._store.add_report(run_id, "backtest_metrics:0", metrics_payload.model_dump_json())
+            headline = format_backtest_headline(config.ticker, start, end, metrics_payload)
+            self._store.add_report(run_id, "backtest_headline:0", headline)
+
+            self._store.set_backtest_trace(run_id, serialize_backtest_trace(result.events))
 
             # Derive a terminal decision from the final portfolio state
             if result.final_state.positions:
@@ -230,26 +309,8 @@ class RunService:
         seen_keys: set[str] = set()
         deadline = time.monotonic() + self._MAX_POLL_SECONDS
         while True:
-            if time.monotonic() >= deadline:
-                yield {"event": "run:error", "data": {"message": "Run timed out waiting for pipeline"}}
-                return
             snapshot = self._store.get(run_id)
-            token_usage = {k: v.model_dump() for k, v in (snapshot.token_usage or {}).items()}
-            for key, report in snapshot.reports.items():
-                if key in seen_keys or ":" not in key:
-                    continue
-                step_key, turn_str = key.rsplit(":", 1)
-                if not turn_str.isdigit():
-                    continue
-                seen_keys.add(key)
-                turn = int(turn_str)
-                raw = token_usage.get(key, {"tokens_in": 0, "tokens_out": 0})
-                yield {"event": "agent:start",    "data": {"step": step_key, "turn": turn}}
-                yield {"event": "agent:complete", "data": {
-                    "step": step_key, "turn": turn, "report": report,
-                    "tokens_in": raw.get("tokens_in", 0),
-                    "tokens_out": raw.get("tokens_out", 0),
-                }}
+            yield from self._replay_reports(snapshot, seen_keys)
             if snapshot.status == RunStatus.COMPLETE:
                 yield {"event": "run:complete", "data": {"decision": snapshot.decision or "HOLD", "run_id": run_id}}
                 return
@@ -258,6 +319,10 @@ class RunService:
                 return
             if snapshot.status == RunStatus.ABORTED:
                 yield {"event": "run:aborted", "data": {"run_id": run_id}}
+                return
+            if time.monotonic() >= deadline:
+                self._store.try_error_run(run_id, "Run timed out after 1 hour")
+                yield {"event": "run:error", "data": {"message": "Run timed out waiting for pipeline", "run_id": run_id}}
                 return
             time.sleep(0.5)
 
@@ -268,47 +333,13 @@ class RunService:
             return
 
         if run.status == RunStatus.COMPLETE:
-            token_usage = {k: v.model_dump() for k, v in (run.token_usage or {}).items()}
-            for key, report in run.reports.items():
-                if ":" not in key:
-                    logger.warning(
-                        "Skipping malformed report key %r for run %s", key, run_id
-                    )
-                    continue
-                step_key, turn_str = key.rsplit(":", 1)
-                if not turn_str.isdigit():
-                    logger.warning(
-                        "Skipping report key with non-numeric turn %r for run %s", key, run_id
-                    )
-                    continue
-                turn = int(turn_str)
-                raw = token_usage.get(key, {"tokens_in": 0, "tokens_out": 0})
-                yield {"event": "agent:start",    "data": {"step": step_key, "turn": turn}}
-                yield {"event": "agent:complete", "data": {
-                    "step": step_key, "turn": turn, "report": report,
-                    "tokens_in": raw.get("tokens_in", 0),
-                    "tokens_out": raw.get("tokens_out", 0),
-                }}
+            yield from self._replay_reports(run)
             yield {"event": "run:complete", "data": {"decision": run.decision or "HOLD", "run_id": run_id}}
             return
 
         if run.status == RunStatus.ABORTED:
             # Replay partial reports collected before abort, then signal aborted
-            token_usage = {k: v.model_dump() for k, v in (run.token_usage or {}).items()}
-            for key, report in run.reports.items():
-                if ":" not in key:
-                    continue
-                step_key, turn_str = key.rsplit(":", 1)
-                if not turn_str.isdigit():
-                    continue
-                turn = int(turn_str)
-                raw = token_usage.get(key, {"tokens_in": 0, "tokens_out": 0})
-                yield {"event": "agent:start",    "data": {"step": step_key, "turn": turn}}
-                yield {"event": "agent:complete", "data": {
-                    "step": step_key, "turn": turn, "report": report,
-                    "tokens_in": raw.get("tokens_in", 0),
-                    "tokens_out": raw.get("tokens_out", 0),
-                }}
+            yield from self._replay_reports(run)
             yield {"event": "run:aborted", "data": {"run_id": run_id}}
             return
 
@@ -326,6 +357,7 @@ class RunService:
 
         self._store.clear_reports(run_id)
         self._store.clear_token_usage(run_id)
+        self._store.clear_backtest_trace(run_id)
 
         with self._cancel_lock:
             cancel_event = threading.Event()
