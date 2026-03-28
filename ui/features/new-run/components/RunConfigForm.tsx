@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import AnalystSelector from './AnalystSelector'
 import { useRunSubmit } from '../hooks/useRunSubmit'
 import { DEFAULT_FORM } from '../types'
@@ -34,7 +34,12 @@ function FieldLabel({
   )
 }
 
-export default function RunConfigForm() {
+type RunConfigFormProps = {
+  /** Notifies parent (e.g. sidebar copy) when mode changes or hydrates from settings. */
+  onExecutionModeChange?: (mode: 'graph' | 'backtest') => void
+}
+
+export default function RunConfigForm({ onExecutionModeChange }: RunConfigFormProps = {}) {
   const [form, setForm] = useState<NewRunFormState>(DEFAULT_FORM)
   const [simulationErrors, setSimulationErrors] = useState<SimulationErrors>({})
   const [runTargetErrors, setRunTargetErrors] = useState<RunTargetErrors>({})
@@ -85,6 +90,10 @@ export default function RunConfigForm() {
       cancelled = true
     }
   }, [])
+
+  useLayoutEffect(() => {
+    onExecutionModeChange?.(form.mode)
+  }, [form.mode, onExecutionModeChange])
 
   useEffect(() => {
     if (!prefsHydrated) return
@@ -254,7 +263,9 @@ export default function RunConfigForm() {
               activeId={form.mode}
               onChange={(id) => {
                 markPrefsOverridden()
-                set('mode', id === 'backtest' ? 'backtest' : 'graph')
+                const next = id === 'backtest' ? 'backtest' : 'graph'
+                set('mode', next)
+                onExecutionModeChange?.(next)
                 if (runTargetErrors.end_date) {
                   setRunTargetErrors((prev) => ({ ...prev, end_date: undefined }))
                 }

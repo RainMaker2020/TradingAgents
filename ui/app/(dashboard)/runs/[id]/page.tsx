@@ -12,6 +12,10 @@ import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
 import Toolbar, { ToolbarField } from '@/components/dashboard/Toolbar'
 import { deriveBacktestHeadlineFromMetrics } from '@/lib/backtestHeadline'
+import {
+  OPERATOR_GUIDANCE_POST_BACKTEST,
+  OPERATOR_GUIDANCE_POST_GRAPH,
+} from '@/lib/runModeSidebarCopy'
 import { AGENT_STEP_LABELS } from '@/lib/types/run'
 import type { AgentStep, BacktestTerminalExposure } from '@/lib/types/run'
 
@@ -457,24 +461,18 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             </div>
           </Panel>
 
-          <Panel title="Workflow Guidance" subtitle="Operator checklist">
+          <Panel
+            title="Operator Guidance"
+            subtitle={
+              isBacktest
+                ? 'Backtest (Engine) · post-run checklist'
+                : 'Graph (LLM) · post-run checklist'
+            }
+          >
             <ul className="space-y-2 text-[12px]" style={{ color: 'var(--text-mid)' }}>
-              {isBacktest ? (
-                <>
-                  <li>Wait for summary readiness before reading terminal outcome.</li>
-                  <li>Use Abort Run if execution remains active longer than expected.</li>
-                  <li>Review fills, final equity, and open positions together.</li>
-                  <li>Compare outcome with backtest period and configuration.</li>
-                  <li>Use Export JSON for metrics + simulation trace (offline review).</li>
-                </>
-              ) : (
-                <>
-                  <li>Track pipeline completion before reading final verdict confidence.</li>
-                  <li>Use diagnostics view to inspect token-intensive agent stages.</li>
-                  <li>Escalate if any step remains running abnormally long.</li>
-                  <li>Compare verdict with per-phase reports before execution decisions.</li>
-                </>
-              )}
+              {(isBacktest ? OPERATOR_GUIDANCE_POST_BACKTEST : OPERATOR_GUIDANCE_POST_GRAPH).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
             </ul>
           </Panel>
 

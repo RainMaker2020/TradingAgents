@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import RunConfigForm from '@/features/new-run/components/RunConfigForm'
 import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
@@ -7,11 +8,48 @@ import { useWorkspaceRuntime } from '@/features/dashboard/hooks/useWorkspaceRunt
 import { AGENT_STEPS, STEP_PHASE } from '@/lib/types/run'
 import { DEFAULT_FORM } from '@/features/new-run/types'
 import { isAvailable } from '@/lib/truth-state'
+import {
+  EXECUTION_FLOW_BACKTEST,
+  EXECUTION_FLOW_GRAPH,
+  OPERATOR_GUIDANCE_PRE_BACKTEST,
+  OPERATOR_GUIDANCE_PRE_GRAPH,
+} from '@/lib/runModeSidebarCopy'
 
 export default function NewRunPage() {
+  const [executionMode, setExecutionMode] = useState<'graph' | 'backtest'>('graph')
   const runtime = useWorkspaceRuntime()
   const phaseCount = new Set(AGENT_STEPS.map((step) => STEP_PHASE[step])).size
   const analystsEnabled = DEFAULT_FORM.enabled_analysts.length
+
+  const metricItems =
+    executionMode === 'backtest'
+      ? [
+          { label: 'Run mode', value: 'Backtest (Engine)', tone: 'accent' as const },
+          { label: 'Engine', value: 'Bar loop + sim', tone: 'positive' as const },
+          {
+            label: 'Workspace default',
+            value: isAvailable(runtime.settings)
+              ? runtime.settings.value.execution_mode === 'backtest'
+                ? 'Engine'
+                : 'Graph'
+              : 'N/A',
+            tone: 'warning' as const,
+          },
+          { label: 'Run ETA', value: 'Unknown', tone: 'neutral' as const },
+        ]
+      : [
+          { label: 'Run mode', value: 'Graph (LLM)', tone: 'accent' as const },
+          { label: 'Pipeline phases', value: String(phaseCount), tone: 'positive' as const },
+          { label: 'Analysts enabled', value: String(analystsEnabled), tone: 'positive' as const },
+          {
+            label: 'Default debate',
+            value: isAvailable(runtime.settings)
+              ? `${runtime.settings.value.max_debate_rounds} rnd`
+              : 'N/A',
+            tone: 'warning' as const,
+          },
+          { label: 'Run ETA', value: 'Unknown', tone: 'neutral' as const },
+        ]
 
   return (
     <>
@@ -27,33 +65,22 @@ export default function NewRunPage() {
         </div>
       </div>
 
-      <MetricStrip
-        items={[
-          { label: 'Pipeline Phases', value: String(phaseCount), tone: 'accent' },
-          { label: 'Analysts Enabled', value: String(analystsEnabled), tone: 'positive' },
-          {
-            label: 'Default Debate',
-            value: isAvailable(runtime.settings)
-              ? `${runtime.settings.value.max_debate_rounds} Round`
-              : 'N/A',
-            tone: 'warning',
-          },
-          { label: 'Run ETA', value: 'Unknown', tone: 'neutral' },
-        ]}
-      />
+      <MetricStrip items={metricItems} />
 
       <div className="ws-grid-2 animate-fade-up">
-        <RunConfigForm />
+        <RunConfigForm onExecutionModeChange={setExecutionMode} />
 
         <div className="space-y-3">
-          <Panel title="Execution Flow" subtitle="What happens after launch">
+          <Panel
+            title="Execution Flow"
+            subtitle={
+              executionMode === 'backtest'
+                ? 'Backtest (Engine) · what happens after launch'
+                : 'Graph (LLM) · what happens after launch'
+            }
+          >
             <ol className="space-y-2">
-              {[
-                'Analysts ingest market, news, fundamentals, and social signals.',
-                'Research agents run bull/bear synthesis and manager consensus.',
-                'Trader and risk committee process position and risk posture.',
-                'Chief analyst publishes final BUY/SELL/HOLD verdict.',
-              ].map((line, idx) => (
+              {(executionMode === 'backtest' ? EXECUTION_FLOW_BACKTEST : EXECUTION_FLOW_GRAPH).map((line, idx) => (
                 <li key={line} className="flex gap-2.5">
                   <span
                     className="terminal-text text-[10px] pt-0.5"
@@ -69,12 +96,18 @@ export default function NewRunPage() {
             </ol>
           </Panel>
 
-          <Panel title="Operator Guidance" subtitle="Pre-launch checks">
+          <Panel
+            title="Operator Guidance"
+            subtitle={
+              executionMode === 'backtest'
+                ? 'Backtest (Engine) · pre-launch checks'
+                : 'Graph (LLM) · pre-launch checks'
+            }
+          >
             <ul className="space-y-2 text-[12px]" style={{ color: 'var(--text-mid)' }}>
-              <li>Confirm ticker/date pair reflects the trading session under review.</li>
-              <li>Use higher-capacity model for deep reasoning on volatile symbols.</li>
-              <li>Increase debate rounds only when thesis conflict is expected.</li>
-              <li>Keep social analyst enabled for momentum-sensitive equities.</li>
+              {(executionMode === 'backtest' ? OPERATOR_GUIDANCE_PRE_BACKTEST : OPERATOR_GUIDANCE_PRE_GRAPH).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
             </ul>
           </Panel>
         </div>
