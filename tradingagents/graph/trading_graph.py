@@ -64,6 +64,19 @@ _NODE_TO_STEP = {
 
 _SKIP_NODES = {"tools_market", "tools_news", "tools_fundamentals", "tools_social"}
 
+# _extract_report returns this when a report field is absent from the update dict,
+# so stream_propagate can emit ("step_key", "") instead of conflating with an
+# intermediate tool-calling step that sets the key to "".
+_MISSING_REPORT = object()
+
+
+def _opt_top_level(update: dict, key: str):
+    """Absent key → sentinel; key present but empty → skip (empty str)."""
+    if key not in update:
+        return _MISSING_REPORT
+    v = update[key]
+    return v if v else ""
+
 
 class TradingAgentsGraph:
     """Main class that orchestrates the trading agents framework."""
@@ -314,24 +327,27 @@ class TradingAgentsGraph:
         return final_state, decision
 
     @staticmethod
-    def _extract_report(step_key: str, update: dict) -> str:
+    def _extract_report(step_key: str, update: dict) -> Any:
         """Extract the relevant report string from a node's state update."""
         extractors = {
-            "market_analyst":       lambda u: u.get("market_report", ""),
-            "news_analyst":         lambda u: u.get("news_report", ""),
-            "fundamentals_analyst": lambda u: u.get("fundamentals_report", ""),
-            "social_analyst":       lambda u: u.get("sentiment_report", ""),
+            "market_analyst":       lambda u: _opt_top_level(u, "market_report"),
+            "news_analyst":         lambda u: _opt_top_level(u, "news_report"),
+            "fundamentals_analyst": lambda u: _opt_top_level(u, "fundamentals_report"),
+            "social_analyst":       lambda u: _opt_top_level(u, "sentiment_report"),
             "bull_researcher":      lambda u: (u.get("investment_debate_state") or {}).get("bull_history", ""),
             "bear_researcher":      lambda u: (u.get("investment_debate_state") or {}).get("bear_history", ""),
-            "research_manager":     lambda u: u.get("investment_plan", ""),
-            "trader":               lambda u: u.get("trader_investment_plan", ""),
+            "research_manager":     lambda u: _opt_top_level(u, "investment_plan"),
+            "trader":               lambda u: _opt_top_level(u, "trader_investment_plan"),
             "aggressive_analyst":   lambda u: (u.get("risk_debate_state") or {}).get("current_aggressive_response", ""),
             "conservative_analyst": lambda u: (u.get("risk_debate_state") or {}).get("current_conservative_response", ""),
             "neutral_analyst":      lambda u: (u.get("risk_debate_state") or {}).get("current_neutral_response", ""),
             "risk_judge":           lambda u: (u.get("risk_debate_state") or {}).get("judge_decision", ""),
             "chief_analyst":        lambda u: json.dumps(u.get("chief_analyst_report") or {}),
         }
-        return extractors[step_key](update) or ""
+        raw = extractors[step_key](update)
+        if raw is _MISSING_REPORT:
+            return _MISSING_REPORT
+        return raw or ""
 
     def stream_propagate(self, company_name: str, trade_date: str, thread_id=None):
         """Stream trading analysis events as each agent node completes.
@@ -381,6 +397,10 @@ class TradingAgentsGraph:
 
             step_key = _NODE_TO_STEP[node_name]
             report = TradingAgentsGraph._extract_report(step_key, update)
+
+            if report is _MISSING_REPORT:
+                yield step_key, ""
+                continue
 
             # Analyst nodes fire twice in a tool-calling loop: once to decide which
             # tools to call (report is empty), then again after tools run to write the
