@@ -230,12 +230,14 @@ class RunService:
 
             ta_config = self._build_ta_config(config)
 
+            token_handler = TokenCallbackHandler()
             strategy = LangGraphStrategyAdapter(
                 selected_analysts=config.enabled_analysts
                 or ["market", "news", "fundamentals", "social"],
                 config=ta_config,
                 confidence=_adapter_confidence_for_risk_gate(sim_cfg),
                 should_cancel=cancel_event.is_set,
+                callbacks=[token_handler],
             )
             try:
                 result = BacktestLoop(
@@ -252,6 +254,8 @@ class RunService:
             if cancel_event.is_set():
                 return
 
+            llm_tok = token_handler.snapshot_and_reset()
+
             # Summarise result as a report for SSE replay
             fills = [e for e in result.events if e.event_type == BacktestEventType.FILL_EXECUTED]
             m = result.metrics
@@ -262,6 +266,13 @@ class RunService:
                 f"({pnl_pct:+.2f}%)\n"
                 if pnl_pct is not None
                 else "(N/A%)\n"
+            )
+            prov_first = feed.loaded_bar_first
+            prov_last = feed.loaded_bar_last
+            prov_range = (
+                f"{prov_first} … {prov_last}"
+                if prov_first is not None and prov_last is not None
+                else "n/a"
             )
             summary = (
                 f"Backtest: {config.ticker}  {start} → {end}\n"
@@ -274,6 +285,9 @@ class RunService:
                 f"Final equity:  ${float(m.total_equity):,.2f}  {ret_line}"
                 f"Unrealized P&L: ${float(m.unrealized_pnl):,.2f}\n"
                 f"Open positions: {dict(result.final_state.positions) or 'none'}\n"
+                f"\n"
+                f"Data file:  {feed.source_csv_path}\n"
+                f"Loaded bars: {prov_range} ({feed.loaded_bar_count} trading rows in cache)\n"
             )
             self._store.add_report(run_id, "backtest_summary:0", summary)
 
@@ -301,6 +315,8 @@ class RunService:
                 as_of=m.as_of.isoformat() if m.as_of else None,
                 positions={sym: str(qty) for sym, qty in result.final_state.positions.items()},
                 terminal_exposure=terminal_exposure,
+                llm_tokens_in=int(llm_tok["in"]),
+                llm_tokens_out=int(llm_tok["out"]),
             )
             self._store.add_report(run_id, "backtest_metrics:0", metrics_payload.model_dump_json())
             headline = format_backtest_headline(config.ticker, start, end, metrics_payload)

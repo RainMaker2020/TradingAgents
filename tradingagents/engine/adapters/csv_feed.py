@@ -103,6 +103,9 @@ class CsvDataFeed:
     def __init__(self, symbol: str, csv_path: str | None = None) -> None:
         self._symbol = symbol.upper()
         path = csv_path or _find_csv(symbol)
+        self._source_csv_path: str = ""
+        self._loaded_bar_first: date | None = None
+        self._loaded_bar_last: date | None = None
         if path is None:
             extra = cache_miss_hint(symbol)
             msg = (
@@ -114,6 +117,7 @@ class CsvDataFeed:
                 msg = f"{msg} {extra}"
             raise FileNotFoundError(msg)
 
+        self._source_csv_path = os.path.abspath(path)
         df = pd.read_csv(path, on_bad_lines="skip")
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         df = df.dropna(subset=["Date"])
@@ -144,6 +148,29 @@ class CsvDataFeed:
         self.calendar: CsvMarketCalendar = CsvMarketCalendar(
             frozenset(self._bars.keys())
         )
+        bar_dates = sorted(self._bars.keys())
+        if bar_dates:
+            self._loaded_bar_first = bar_dates[0]
+            self._loaded_bar_last = bar_dates[-1]
+
+    @property
+    def source_csv_path(self) -> str:
+        """Absolute path to the OHLCV file backing this feed."""
+        return self._source_csv_path
+
+    @property
+    def loaded_bar_first(self) -> date | None:
+        """Earliest trading date present in the loaded cache (not the backtest window)."""
+        return self._loaded_bar_first
+
+    @property
+    def loaded_bar_last(self) -> date | None:
+        """Latest trading date present in the loaded cache."""
+        return self._loaded_bar_last
+
+    @property
+    def loaded_bar_count(self) -> int:
+        return len(self._bars)
 
     def stream_bars(
         self, symbol: str, start: date, end: date

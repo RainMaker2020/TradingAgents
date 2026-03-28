@@ -79,6 +79,21 @@ export function parseBacktestMetrics(report: string): BacktestMetrics | null {
 
   const terminal_exposure = inferTerminalExposure(r, positions)
 
+  const tin = r.llm_tokens_in
+  const tout = r.llm_tokens_out
+  const llm_tokens_in =
+    tin === null || tin === undefined
+      ? 0
+      : typeof tin === 'number' && Number.isInteger(tin) && tin >= 0
+        ? tin
+        : 0
+  const llm_tokens_out =
+    tout === null || tout === undefined
+      ? 0
+      : typeof tout === 'number' && Number.isInteger(tout) && tout >= 0
+        ? tout
+        : 0
+
   return {
     initial_cash: r.initial_cash,
     final_equity: r.final_equity,
@@ -91,5 +106,7 @@ export function parseBacktestMetrics(report: string): BacktestMetrics | null {
     as_of,
     positions,
     terminal_exposure,
+    llm_tokens_in,
+    llm_tokens_out,
   }
 }

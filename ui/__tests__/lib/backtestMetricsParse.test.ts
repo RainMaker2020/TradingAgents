@@ -20,6 +20,19 @@ test('parseBacktestMetrics returns typed object for valid API JSON', () => {
   expect(m!.final_equity).toBe(96500)
   expect(m!.total_return_pct).toBe(-3.5)
   expect(m!.positions.AAPL).toBe('10')
+  expect(m!.llm_tokens_in).toBe(0)
+  expect(m!.llm_tokens_out).toBe(0)
+})
+
+test('parseBacktestMetrics reads llm token fields when present', () => {
+  const raw = JSON.stringify({
+    ...JSON.parse(validJson),
+    llm_tokens_in: 1200,
+    llm_tokens_out: 400,
+  })
+  const m = parseBacktestMetrics(raw)
+  expect(m!.llm_tokens_in).toBe(1200)
+  expect(m!.llm_tokens_out).toBe(400)
 })
 
 test('parseBacktestMetrics accepts null total_return_pct', () => {

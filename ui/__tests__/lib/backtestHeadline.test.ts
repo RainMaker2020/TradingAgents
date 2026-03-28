@@ -13,6 +13,8 @@ const base: BacktestMetrics = {
   as_of: null,
   positions: {},
   terminal_exposure: 'flat_closed',
+  llm_tokens_in: 0,
+  llm_tokens_out: 0,
 }
 
 test('deriveBacktestHeadlineFromMetrics matches server-style pattern', () => {

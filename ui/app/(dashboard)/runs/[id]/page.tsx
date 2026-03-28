@@ -41,6 +41,17 @@ function formatTerminalExposure(e: BacktestTerminalExposure): string {
   return 'Flat (no trades)'
 }
 
+function formatAsOfUtc(iso: string | null): string {
+  if (!iso) return 'N/A'
+  try {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return iso
+    return `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`
+  } catch {
+    return iso
+  }
+}
+
 export default function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const {
@@ -91,7 +102,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   const modeLabel = mode === 'backtest' ? 'BACKTEST' : mode === 'graph' ? 'GRAPH' : 'UNKNOWN'
   const modeTone = mode === 'backtest' ? 'var(--hold)' : 'var(--accent)'
   const dateLabel = isBacktest && date && endDate ? `${date} → ${endDate}` : date
-  const viewModes = isBacktest ? (['overview'] as const) : (['overview', 'diagnostics'] as const)
+  const viewModes = ['overview', 'diagnostics'] as const
+  const runContextLabel = isBacktest ? 'Backtest simulation' : 'Live execution'
 
   const scanHeadline = useMemo(() => {
     if (backtestHeadline) return backtestHeadline
@@ -126,6 +138,17 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             tone: 'neutral' as const,
           },
           { label: 'Fees Paid',      value: formatMoney(backtestMetrics.total_fees_paid),   tone: 'warning' as const },
+          {
+            label: 'Max drawdown',
+            value: formatPct(backtestMetrics.max_drawdown_pct),
+            tone:
+              backtestMetrics.max_drawdown_pct === null
+                ? ('neutral' as const)
+                : backtestMetrics.max_drawdown_pct < 0
+                  ? ('negative' as const)
+                  : ('neutral' as const),
+          },
+          { label: 'Metrics as-of', value: formatAsOfUtc(backtestMetrics.as_of), tone: 'neutral' as const },
         ]
       : [
           { label: 'Execution Mode', value: modeLabel, tone: 'warning' as const },
@@ -145,7 +168,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
       <div className="ws-page-header">
         <div>
           <div className="apex-label mb-2" style={{ color: 'var(--accent)', opacity: 0.7 }}>
-            Live Execution
+            {runContextLabel}
           </div>
           <h1 className="ws-page-title">
             {ticker ? (
@@ -210,7 +233,34 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
           </ToolbarField>
         }
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {isBacktest && (backtestMetrics != null || (backtestTrace != null && backtestTrace.length > 0)) && (
+              <button
+                type="button"
+                className="btn-secondary !h-[34px] !px-3 !py-0 text-xs"
+                onClick={() => {
+                  const payload = {
+                    run_id: id,
+                    ticker,
+                    date,
+                    end_date: endDate,
+                    mode: 'backtest' as const,
+                    metrics: backtestMetrics,
+                    trace: backtestTrace ?? [],
+                    summary_text: backtestSummary,
+                  }
+                  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `backtest-${id.slice(0, 8)}.json`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}
+              >
+                Export JSON
+              </button>
+            )}
             <span className="terminal-text text-[10px]" style={{ color: 'var(--text-low)', letterSpacing: '0.08em' }}>
               RUN ID · {id.slice(0, 8)}
             </span>
@@ -231,8 +281,17 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
 
       <div className="ws-grid-2">
         <div className="space-y-4 min-w-0">
-          {/* Token stats bar */}
-          {!isBacktest && <TokenStatsBar tokensTotal={tokensTotal} />}
+          {/* Token stats: graph mode streams per-step; backtest embeds LLM totals in metrics. */}
+          {((!isBacktest && (tokensTotal.in > 0 || tokensTotal.out > 0)) ||
+            (isBacktest && backtestMetrics && (backtestMetrics.llm_tokens_in > 0 || backtestMetrics.llm_tokens_out > 0))) && (
+            <TokenStatsBar
+              tokensTotal={
+                isBacktest && backtestMetrics
+                  ? { in: backtestMetrics.llm_tokens_in, out: backtestMetrics.llm_tokens_out }
+                  : tokensTotal
+              }
+            />
+          )}
 
           {/* Chief Analyst Executive Summary */}
           {mode !== 'backtest' && (
@@ -406,6 +465,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                   <li>Use Abort Run if execution remains active longer than expected.</li>
                   <li>Review fills, final equity, and open positions together.</li>
                   <li>Compare outcome with backtest period and configuration.</li>
+                  <li>Use Export JSON for metrics + simulation trace (offline review).</li>
                 </>
               ) : (
                 <>
@@ -418,6 +478,29 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             </ul>
           </Panel>
 
+          {viewMode === 'diagnostics' && isBacktest && (
+            <Panel title="Backtest diagnostics" subtitle="LLM usage · graph-style step breakdown is N/A here">
+              <div className="space-y-2 text-[12px]" style={{ color: 'var(--text-mid)' }}>
+                <p>
+                  LangGraph ran inside the engine for each bar (minus signal-cache hits). Aggregate token counts
+                  are on the metrics payload and in the token bar when non-zero.
+                </p>
+                {backtestMetrics && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 terminal-text text-[11px]">
+                    <span>
+                      LLM in: <span style={{ color: 'var(--text-high)' }}>{backtestMetrics.llm_tokens_in}</span>
+                    </span>
+                    <span>
+                      LLM out: <span style={{ color: 'var(--text-high)' }}>{backtestMetrics.llm_tokens_out}</span>
+                    </span>
+                  </div>
+                )}
+                <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
+                  Data source path and loaded bar date range are appended to the full engine output (Overview).
+                </p>
+              </div>
+            </Panel>
+          )}
           {viewMode === 'diagnostics' && !isBacktest && (
             <Panel title="Token Diagnostics" subtitle="Per-step usage sample">
               <div className="space-y-1.5">

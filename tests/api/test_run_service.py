@@ -574,6 +574,7 @@ class TestBacktestMetricsReport:
             "unrealized_pnl", "realized_pnl", "total_fees_paid",
             "fill_count", "max_drawdown_pct", "as_of", "positions",
             "terminal_exposure",
+            "llm_tokens_in", "llm_tokens_out",
         }
         for key in required_keys:
             assert key in parsed, f"Missing key: {key}"
@@ -582,6 +583,83 @@ class TestBacktestMetricsReport:
         assert parsed["positions"] == {"AAPL": "10"}
         assert parsed["max_drawdown_pct"] is None
         assert parsed["terminal_exposure"] == "long"
+        assert parsed["llm_tokens_in"] == 0
+        assert parsed["llm_tokens_out"] == 0
+
+    def test_backtest_metrics_include_llm_token_counts_from_handler(self, service, store):
+        """LangGraph token callback totals are persisted on the metrics payload."""
+        from unittest.mock import MagicMock, patch
+        import json
+        import threading
+        from api.models.run import RunConfig
+        from tradingagents.engine.schemas.portfolio import (
+            BacktestResult,
+            PortfolioState,
+            PortfolioMetrics,
+        )
+        from datetime import date as _date, datetime, timezone
+        from decimal import Decimal
+
+        class FakeBacktestLoop:
+            def __init__(self, feed, strategy, risk, simulator, portfolio, config):
+                pass
+
+            def run(self, ticker, start, end):
+                now = datetime(2024, 1, 2, tzinfo=timezone.utc)
+                state = PortfolioState(
+                    as_of=now,
+                    cash=Decimal("100000"),
+                    positions={},
+                    cost_basis={},
+                )
+                metrics = PortfolioMetrics(
+                    as_of=now,
+                    total_equity=Decimal("100000"),
+                    unrealized_pnl=Decimal("0"),
+                    realized_pnl=Decimal("0"),
+                    total_fees_paid=Decimal("0"),
+                    max_drawdown_pct=None,
+                )
+                return BacktestResult(
+                    symbol="AAPL",
+                    start=_date(2024, 1, 2),
+                    end=_date(2024, 1, 2),
+                    initial_state=state,
+                    final_state=state,
+                    events=[],
+                    metrics=metrics,
+                )
+
+        config = RunConfig(
+            ticker="AAPL",
+            date="2024-01-02",
+            mode="backtest",
+            end_date="2024-01-02",
+            simulation_config={"initial_cash": 100000, "max_position_pct": 10},
+        )
+        run = store.create(config)
+        assert store.try_claim_run(run.id) is True
+        sim_cfg = service._normalize_sim_config(config)
+        cancel = threading.Event()
+
+        mock_handler = MagicMock()
+        mock_handler.snapshot_and_reset.return_value = {"in": 42, "out": 17}
+
+        with patch("api.services.run_service.BacktestLoop", FakeBacktestLoop), \
+             patch("tradingagents.engine.adapters.csv_feed.CsvDataFeed") as mock_feed, \
+             patch("tradingagents.engine.adapters.langgraph_strategy.LangGraphStrategyAdapter") as mock_strategy, \
+             patch("api.services.run_service.TokenCallbackHandler", return_value=mock_handler):
+            mock_feed.return_value = MagicMock()
+            mock_strategy.return_value = MagicMock(close=MagicMock())
+            service._run_backtest_pipeline(run.id, config, sim_cfg, cancel)
+
+        parsed = json.loads(store.get(run.id).reports["backtest_metrics:0"])
+        assert parsed["llm_tokens_in"] == 42
+        assert parsed["llm_tokens_out"] == 17
+        mock_strategy.assert_called_once()
+        call_kw = mock_strategy.call_args.kwargs
+        assert "callbacks" in call_kw and len(call_kw["callbacks"]) == 1
+        assert call_kw["callbacks"][0] is mock_handler
 
     def test_backtest_persists_trace_with_signal_and_order(self, service, store):
         from datetime import datetime, timezone

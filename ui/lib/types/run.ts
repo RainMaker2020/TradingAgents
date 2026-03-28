@@ -103,6 +103,9 @@ export type BacktestMetrics = {
   as_of: string | null
   positions: Record<string, string>
   terminal_exposure: BacktestTerminalExposure
+  /** Total LLM tokens (LangGraph backtest); 0 when absent or all signal-cache hits. */
+  llm_tokens_in: number
+  llm_tokens_out: number
 }
 
 /** One row from `RunsStore.backtest_trace` (serialized `BacktestEvent`). */

@@ -142,6 +142,8 @@ test('hydrates backtest_headline and backtest_metrics on completed backtest', as
     max_drawdown_pct: null,
     as_of: null,
     positions: {},
+    llm_tokens_in: 900,
+    llm_tokens_out: 300,
   })
 
   getRun.mockResolvedValueOnce({
@@ -168,6 +170,9 @@ test('hydrates backtest_headline and backtest_metrics on completed backtest', as
   expect(result.current.backtestHeadline).toContain('MSFT')
   expect(result.current.backtestHeadline).toContain('fills')
   expect(result.current.backtestMetrics?.final_equity).toBe(96500)
+  expect(result.current.backtestMetrics?.llm_tokens_in).toBe(900)
+  expect(result.current.backtestMetrics?.llm_tokens_out).toBe(300)
+  expect(result.current.tokensTotal).toEqual({ in: 900, out: 300 })
   expect(result.current.backtestSummary).toBe('full dump')
 })
 

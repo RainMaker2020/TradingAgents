@@ -19,6 +19,9 @@ class BacktestMetricsPayload(BaseModel):
     terminal_exposure: Literal["long", "flat_closed", "flat_untraded"] = Field(
         description="End-of-run position state (backtest). Not an intraday trade signal.",
     )
+    # LangGraph / LLM usage for the whole backtest (LangGraphStrategyAdapter); cache hits add 0.
+    llm_tokens_in: int = 0
+    llm_tokens_out: int = 0
 
 
 def format_backtest_headline(

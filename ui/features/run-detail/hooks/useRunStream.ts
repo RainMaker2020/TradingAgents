@@ -135,7 +135,14 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
       return { ...state, backtestHeadline: action.headline }
 
     case 'BACKTEST_METRICS':
-      return { ...state, backtestMetrics: action.metrics }
+      return {
+        ...state,
+        backtestMetrics: action.metrics,
+        tokensTotal: {
+          in: action.metrics.llm_tokens_in ?? 0,
+          out: action.metrics.llm_tokens_out ?? 0,
+        },
+      }
 
     case 'BACKTEST_TRACE':
       return { ...state, backtestTrace: action.trace }
