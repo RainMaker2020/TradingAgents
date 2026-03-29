@@ -1,8 +1,8 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import time
 import json
-from tradingagents.agents.utils.agent_utils import get_stock_data, get_indicators
-from tradingagents.skills import make_load_agent_playbook_tool, playbook_invocation_hint
+from tradingagents.agents.utils.analyst_tool_lists import market_analyst_tools
+from tradingagents.skills import playbook_invocation_hint
 
 
 def create_market_analyst(llm):
@@ -12,12 +12,7 @@ def create_market_analyst(llm):
         ticker = state["company_of_interest"]
         company_name = state["company_of_interest"]
 
-        playbook_tool = make_load_agent_playbook_tool("market")
-        tools = [
-            playbook_tool,
-            get_stock_data,
-            get_indicators,
-        ]
+        tools = market_analyst_tools()
 
         system_message = playbook_invocation_hint("market") + "\n\n" + (
             """You are a trading assistant tasked with analyzing financial markets. Your role is to select the **most relevant indicators** for a given market condition or trading strategy from the following list. The goal is to choose up to **8 indicators** that provide complementary insights without redundancy. Categories and each category's indicators are:

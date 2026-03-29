@@ -19,6 +19,10 @@ DEFAULT_CONFIG = {
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Per-analyst analyst↔tool cycles (each tools_* visit counts). Independent of debate rounds.
+    # 0 = never execute tools_* (route straight to Msg Clear when the model requests tools).
+    "max_analyst_tool_rounds": 32,
+    "max_analyst_tool_rounds_by_role": {},
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {

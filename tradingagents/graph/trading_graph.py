@@ -26,17 +26,11 @@ from tradingagents.agents.utils.agent_states import (
 )
 from tradingagents.dataflows.config import set_config
 
-# Import the new abstract tool methods from agent_utils
-from tradingagents.agents.utils.agent_utils import (
-    get_stock_data,
-    get_indicators,
-    get_fundamentals,
-    get_balance_sheet,
-    get_cashflow,
-    get_income_statement,
-    get_news,
-    get_insider_transactions,
-    get_global_news
+from tradingagents.agents.utils.analyst_tool_lists import (
+    fundamentals_analyst_tools,
+    market_analyst_tools,
+    news_analyst_tools,
+    social_analyst_tools,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -44,7 +38,6 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
-from tradingagents.skills import make_load_agent_playbook_tool
 
 
 _NODE_TO_STEP = {
@@ -222,36 +215,10 @@ class TradingAgentsGraph:
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for different data sources using abstract methods."""
         return {
-            "market": ToolNode(
-                [
-                    make_load_agent_playbook_tool("market"),
-                    get_stock_data,
-                    get_indicators,
-                ]
-            ),
-            "social": ToolNode(
-                [
-                    make_load_agent_playbook_tool("social"),
-                    get_news,
-                ]
-            ),
-            "news": ToolNode(
-                [
-                    make_load_agent_playbook_tool("news"),
-                    get_news,
-                    get_global_news,
-                    get_insider_transactions,
-                ]
-            ),
-            "fundamentals": ToolNode(
-                [
-                    make_load_agent_playbook_tool("fundamentals"),
-                    get_fundamentals,
-                    get_balance_sheet,
-                    get_cashflow,
-                    get_income_statement,
-                ]
-            ),
+            "market": ToolNode(market_analyst_tools()),
+            "social": ToolNode(social_analyst_tools()),
+            "news": ToolNode(news_analyst_tools()),
+            "fundamentals": ToolNode(fundamentals_analyst_tools()),
         }
 
     def propagate(self, company_name, trade_date, thread_id: Optional[str] = None):

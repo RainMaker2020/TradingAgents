@@ -1,8 +1,8 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import time
 import json
-from tradingagents.agents.utils.agent_utils import get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement
-from tradingagents.skills import make_load_agent_playbook_tool, playbook_invocation_hint
+from tradingagents.agents.utils.analyst_tool_lists import fundamentals_analyst_tools
+from tradingagents.skills import playbook_invocation_hint
 
 
 def create_fundamentals_analyst(llm):
@@ -11,14 +11,7 @@ def create_fundamentals_analyst(llm):
         ticker = state["company_of_interest"]
         company_name = state["company_of_interest"]
 
-        playbook_tool = make_load_agent_playbook_tool("fundamentals")
-        tools = [
-            playbook_tool,
-            get_fundamentals,
-            get_balance_sheet,
-            get_cashflow,
-            get_income_statement,
-        ]
+        tools = fundamentals_analyst_tools()
 
         system_message = playbook_invocation_hint("fundamentals") + "\n\n" + (
             "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Do not simply state the trends are mixed, provide detailed and finegrained analysis and insights that may help traders make decisions."

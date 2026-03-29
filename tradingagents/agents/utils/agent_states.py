@@ -1,4 +1,4 @@
-from typing import Annotated, Sequence, Literal
+from typing import Annotated, Literal, Sequence
 from datetime import date, timedelta, datetime
 from typing_extensions import TypedDict, Optional, NotRequired
 from pydantic import BaseModel
@@ -6,6 +6,15 @@ from langchain_openai import ChatOpenAI
 from tradingagents.agents import *
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import END, StateGraph, START, MessagesState
+
+
+def merge_analyst_tool_rounds(
+    left: dict[str, int] | None, right: dict[str, int] | None
+) -> dict[str, int]:
+    """Merge per-role completed tool-node visit counts (LangGraph reducer)."""
+    out = dict(left or {})
+    out.update(right or {})
+    return out
 
 
 class ChiefAnalystReport(BaseModel):
@@ -88,3 +97,6 @@ class AgentState(MessagesState):
 
     # One retry toward last analyst if As-of contract missing; see As-Of Gate in graph.
     as_of_gate_failures: NotRequired[int]
+
+    # Completed tools_* executions per analyst role (incremented after each ToolNode run).
+    analyst_tool_rounds: Annotated[dict[str, int], merge_analyst_tool_rounds]
