@@ -2,6 +2,7 @@ import logging
 import time
 import threading
 from collections import defaultdict
+from pathlib import Path
 from typing import Generator
 from api.store.runs_store import RunsStore
 from api.utils.backtest_trace import serialize_backtest_trace
@@ -13,9 +14,12 @@ logger = logging.getLogger(__name__)
 try:
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.tracing.jsonl_run_trace import RunJsonlTraceWriter, RunTraceCallbackHandler
 except ImportError:
     TradingAgentsGraph = None  # type: ignore
     DEFAULT_CONFIG = {}
+    RunJsonlTraceWriter = None  # type: ignore
+    RunTraceCallbackHandler = None  # type: ignore
 
 from tradingagents.engine.schemas.config import SimulationConfig
 from tradingagents.engine.schemas.config_input import SimulationConfigInput
@@ -159,10 +163,27 @@ class RunService:
         applied** to graph execution today. API clients cannot set backtest-only
         risk fields while ``mode=graph`` (see ``RunConfig`` validation).
         """
+        trace_writer = None
         try:
             ta_config = self._build_ta_config(config)
 
             token_handler = TokenCallbackHandler()
+            extra_callbacks: list = []
+            if (
+                TradingAgentsGraph is not None
+                and RunJsonlTraceWriter is not None
+                and RunTraceCallbackHandler is not None
+                and ta_config.get("jsonl_run_trace", True)
+            ):
+                max_arg = int(ta_config.get("jsonl_trace_max_arg_chars", 400))
+                trace_writer = RunJsonlTraceWriter(
+                    run_id,
+                    Path(ta_config.get("results_dir", "./results")),
+                )
+                extra_callbacks.append(
+                    RunTraceCallbackHandler(trace_writer, max_arg_chars=max_arg)
+                )
+
             ta = TradingAgentsGraph(
                 debug=False,
                 config=ta_config,
@@ -173,7 +194,13 @@ class RunService:
 
             turn_counts: defaultdict[str, int] = defaultdict(int)
 
-            for step_key, report in ta.stream_propagate(config.ticker, config.date):
+            for step_key, report in ta.stream_propagate(
+                config.ticker,
+                config.date,
+                thread_id=run_id,
+                run_trace=trace_writer,
+                extra_graph_callbacks=extra_callbacks,
+            ):
                 if cancel_event.is_set():
                     return  # abort requested; ABORTED already in DB
                 tokens = token_handler.snapshot_and_reset()
@@ -189,7 +216,18 @@ class RunService:
             self._store.try_complete_run(run_id, decision)
 
         except Exception as e:
+            if trace_writer is not None:
+                try:
+                    trace_writer.append("run_error", {"error": str(e)[:2000]})
+                except Exception:
+                    logger.exception("failed to append run_error to JSONL trace")
             self._store.try_error_run(run_id, str(e))
+        finally:
+            if trace_writer is not None:
+                try:
+                    trace_writer.close()
+                except Exception:
+                    logger.exception("failed to close JSONL trace writer")
 
     def _run_backtest_pipeline(
         self,

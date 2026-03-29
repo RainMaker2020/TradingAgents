@@ -7,6 +7,7 @@ from tradingagents.agents.utils.agent_states import merge_analyst_tool_rounds
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.conditional_logic import ConditionalLogic
 from tradingagents.graph.propagation import Propagator
+from tradingagents.graph.setup import _wrap_tool_node_with_round_increment
 
 
 def _msg_with_tools():
@@ -133,3 +134,51 @@ def test_analyst_tool_lists_match_tool_names():
         tools = fn()
         names = [t.name for t in tools]
         assert len(names) == len(set(names)), f"duplicate tool name in {fn.__name__}"
+
+
+class _FakeToolNode:
+    """Stand-in for ToolNode: wrapper only calls .invoke(state)."""
+
+    def __init__(self, result):
+        self._result = result
+
+    def invoke(self, state):
+        return self._result
+
+
+def test_wrap_tool_node_increments_round_from_zero():
+    wrapped = _wrap_tool_node_with_round_increment(
+        _FakeToolNode({"messages": []}), "market"
+    )
+    out = wrapped({"messages": [], "analyst_tool_rounds": {}})
+    assert out["analyst_tool_rounds"]["market"] == 1
+    assert out["messages"] == []
+
+
+def test_wrap_tool_node_increments_round_preserving_other_roles():
+    wrapped = _wrap_tool_node_with_round_increment(
+        _FakeToolNode({"messages": []}), "news"
+    )
+    out = wrapped(
+        {"messages": [], "analyst_tool_rounds": {"market": 3, "news": 1}}
+    )
+    assert out["analyst_tool_rounds"]["market"] == 3
+    assert out["analyst_tool_rounds"]["news"] == 2
+
+
+def test_wrap_tool_node_merges_dict_result_with_round_counter():
+    wrapped = _wrap_tool_node_with_round_increment(
+        _FakeToolNode({"messages": ["x"], "extra": 1}), "social"
+    )
+    out = wrapped({"messages": [], "analyst_tool_rounds": {}})
+    assert out["messages"] == ["x"]
+    assert out["extra"] == 1
+    assert out["analyst_tool_rounds"]["social"] == 1
+
+
+def test_wrap_tool_node_raises_typeerror_when_base_returns_non_dict():
+    wrapped = _wrap_tool_node_with_round_increment(
+        _FakeToolNode("not-a-dict"), "fundamentals"
+    )
+    with pytest.raises(TypeError, match="must return dict"):
+        wrapped({"messages": [], "analyst_tool_rounds": {}})
