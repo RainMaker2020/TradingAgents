@@ -1,7 +1,51 @@
 'use client'
+import { useState } from 'react'
 import { AGENT_STEPS, AGENT_STEP_LABELS, STEP_PHASE } from '@/lib/types/run'
 import type { AgentStep } from '@/lib/types/run'
 import type { StepStatus } from '@/lib/types/agents'
+
+/** Collapsed preview length; full text available via Read more. */
+const REPORT_PREVIEW_MAX_CHARS = 480
+
+function AgentReportBody({ report }: { report: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const trimmed = report.trim()
+  const overLimit = trimmed.length > REPORT_PREVIEW_MAX_CHARS
+  const collapsed =
+    overLimit
+      ? `${trimmed.slice(0, REPORT_PREVIEW_MAX_CHARS).trimEnd()}…`
+      : trimmed
+  const display = expanded || !overLimit ? trimmed : collapsed
+
+  return (
+    <div className="px-4 py-3">
+      <p
+        className="text-sm leading-relaxed whitespace-pre-wrap break-words"
+        style={{ color: 'var(--text-mid)', lineHeight: '1.75', fontFamily: 'var(--font-manrope)' }}
+      >
+        {display}
+      </p>
+      {overLimit && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-2 text-[11px] font-bold tracking-wide"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.06em',
+            color: 'var(--accent-light)',
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? 'Show less' : 'Read more'}
+        </button>
+      )}
+    </div>
+  )
+}
 
 function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
@@ -152,15 +196,7 @@ export default function AnalystReports({ phase, steps, reports, tokensByStep }: 
                   </div>
                 </div>
 
-                {/* Report body */}
-                <div className="px-4 py-3">
-                  <p
-                    className="text-sm leading-relaxed line-clamp-5"
-                    style={{ color: 'var(--text-mid)', lineHeight: '1.75', fontFamily: 'var(--font-manrope)' }}
-                  >
-                    {report}
-                  </p>
-                </div>
+                <AgentReportBody report={report} />
               </div>
             ))}
 

@@ -19,6 +19,14 @@ DEFAULT_CONFIG = {
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Per-analyst analyst↔tool cycles (each tools_* visit counts). Independent of debate rounds.
+    # 0 = never execute tools_* (route straight to Msg Clear when the model requests tools).
+    "max_analyst_tool_rounds": 32,
+    "max_analyst_tool_rounds_by_role": {},
+    # Append-only JSONL under results_dir/traces/{run_id}.jsonl (API graph runs).
+    # Set TRADINGAGENTS_JSONL_TRACE=0 to disable.
+    "jsonl_run_trace": os.getenv("TRADINGAGENTS_JSONL_TRACE", "1") != "0",
+    "jsonl_trace_max_arg_chars": int(os.getenv("TRADINGAGENTS_JSONL_TRACE_MAX_ARG_CHARS", "400")),
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {

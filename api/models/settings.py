@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -7,3 +9,5 @@ class Settings(BaseModel):
     llm_provider: str = "openai"
     max_debate_rounds: int = Field(default=1, ge=1, le=5)
     max_risk_discuss_rounds: int = Field(default=1, ge=1, le=5)
+    execution_mode: Literal["graph", "backtest"] = "graph"
+    profile_preset: Optional[Literal["fast", "balanced", "deep"]] = None

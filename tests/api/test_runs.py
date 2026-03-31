@@ -11,7 +11,9 @@ async def test_create_run_returns_run_id():
             "ticker": "NVDA", "date": "2024-05-10"
         })
     assert response.status_code == 200
-    assert "id" in response.json()
+    body = response.json()
+    assert "id" in body
+    assert body.get("mode") == "graph"
 
 @pytest.mark.asyncio
 async def test_list_runs_empty_initially():
@@ -38,6 +40,44 @@ async def test_abort_run_noop_for_unknown_run():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/api/runs/nonexistent/abort")
     assert resp.status_code == 404
+
+@pytest.mark.asyncio
+async def test_get_run_omits_backtest_trace_by_default():
+    from api.store.shared import store as _store
+    from api.models.run import RunConfig
+    import json
+
+    run = _store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    _store.set_backtest_trace(run.id, json.dumps([{"event_type": "DATA_SKIPPED"}]))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"/api/runs/{run.id}")
+    assert response.status_code == 200
+    assert response.json().get("backtest_trace") is None
+
+
+@pytest.mark.asyncio
+async def test_get_run_include_backtest_trace_query():
+    from api.store.shared import store as _store
+    from api.models.run import RunConfig
+    import json
+
+    run = _store.create(RunConfig(ticker="NVDA", date="2026-03-25"))
+    payload = [{"event_type": "SIGNAL_GENERATED", "symbol": "NVDA"}]
+    _store.set_backtest_trace(run.id, json.dumps(payload))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            f"/api/runs/{run.id}",
+            params={"include_backtest_trace": "true"},
+        )
+    assert response.status_code == 200
+    assert response.json()["backtest_trace"] == payload
+
 
 @pytest.mark.asyncio
 async def test_abort_run_noop_for_complete():

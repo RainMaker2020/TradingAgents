@@ -1,8 +1,22 @@
-import type { RunConfig, RunSummary } from './types/run'
+import type { RunConfig, RunSummary, BacktestTraceEvent } from './types/run'
 import type { Settings } from './types/settings'
-import type { ProviderModels, RuntimeHealth, RuntimeSnapshot } from './types/system'
+import type { ProviderModels, RuntimeHealth, RuntimeSnapshot, TickerResolveResponse } from './types/system'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? ''
+
+export class ApiError extends Error {
+  status: number
+  path: string
+  detail?: unknown
+
+  constructor(message: string, status: number, path: string, detail?: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.path = path
+    this.detail = detail
+  }
+}
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
@@ -13,7 +27,19 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       ? { 'Content-Type': 'application/json', ...init?.headers }
       : init?.headers,
   })
-  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`)
+  if (!res.ok) {
+    let errorBody: unknown = undefined
+    try {
+      errorBody = await res.json()
+    } catch {
+      // Some endpoints may return non-JSON bodies on failure.
+    }
+    const detail =
+      typeof errorBody === 'object' && errorBody !== null && 'detail' in errorBody
+        ? (errorBody as { detail?: unknown }).detail
+        : undefined
+    throw new ApiError(`API error ${res.status}: ${path}`, res.status, path, detail)
+  }
   return res.json() as Promise<T>
 }
 
@@ -22,6 +48,16 @@ export type RunResult = RunSummary & {
   reports: Record<string, string>
   error: string | null
   token_usage: Record<string, { tokens_in: number; tokens_out: number }> | null
+  /**
+   * Populated only when `getRun(id, { includeBacktestTrace: true })` is used
+   * (GET `?include_backtest_trace=true`). Otherwise omitted or null — see API `RunResult`.
+   */
+  backtest_trace?: BacktestTraceEvent[] | null
+}
+
+export type GetRunOptions = {
+  /** Set true for run-detail / backtest timeline (adds `?include_backtest_trace=true`). */
+  includeBacktestTrace?: boolean
 }
 
 export const createRun = (config: RunConfig): Promise<RunSummary> =>
@@ -30,8 +66,11 @@ export const createRun = (config: RunConfig): Promise<RunSummary> =>
 export const listRuns = (): Promise<RunSummary[]> =>
   apiFetch('/api/runs')
 
-export const getRun = (id: string): Promise<RunResult> =>
-  apiFetch<RunResult>(`/api/runs/${id}`)
+export const getRun = (id: string, options?: GetRunOptions): Promise<RunResult> => {
+  const q =
+    options?.includeBacktestTrace === true ? '?include_backtest_trace=true' : ''
+  return apiFetch<RunResult>(`/api/runs/${id}${q}`)
+}
 
 export const getSettings = (): Promise<Settings> =>
   apiFetch('/api/settings')
@@ -47,6 +86,9 @@ export const getRuntimeSnapshot = (): Promise<RuntimeSnapshot> =>
 
 export const getProviderModels = (provider: string): Promise<ProviderModels> =>
   apiFetch(`/api/system/models/${encodeURIComponent(provider)}`)
+
+export const resolveTickerSymbol = (q: string): Promise<TickerResolveResponse> =>
+  apiFetch(`/api/symbols/resolve?q=${encodeURIComponent(q.trim())}`)
 
 export const getRunStreamUrl = (id: string): string =>
   `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/runs/${id}/stream`

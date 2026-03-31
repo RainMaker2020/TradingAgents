@@ -9,6 +9,8 @@ jest.mock('@/lib/api-client', () => ({
     quick_think_llm: 'gpt-5-mini',
     max_debate_rounds: 1,
     max_risk_discuss_rounds: 1,
+    execution_mode: 'graph',
+    profile_preset: null,
   }),
   getProviderModels: jest.fn().mockResolvedValue({ provider: 'openai', models: [], error: null }),
   updateSettings: jest.fn().mockResolvedValue({}),
@@ -21,6 +23,8 @@ test('loads settings with deepseek provider', async () => {
     quick_think_llm: 'deepseek-chat',
     max_debate_rounds: 2,
     max_risk_discuss_rounds: 2,
+    execution_mode: 'graph',
+    profile_preset: 'balanced',
   })
   jest.mocked(getProviderModels).mockResolvedValueOnce({
     provider: 'deepseek',

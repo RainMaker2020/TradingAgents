@@ -55,6 +55,13 @@ export const STEP_PHASE: Record<AgentStep, 'analysts' | 'researchers' | 'trader'
 
 export type RunStatus = 'queued' | 'running' | 'complete' | 'error' | 'aborted'
 
+export type SimulationConfig = {
+  initial_cash: number
+  slippage_bps: number
+  fee_per_trade: number
+  max_position_pct: number
+}
+
 export type RunConfig = {
   ticker: string
   date: string
@@ -64,6 +71,9 @@ export type RunConfig = {
   max_debate_rounds: number
   max_risk_discuss_rounds: number
   enabled_analysts?: string[]
+  simulation_config?: SimulationConfig
+  mode?: 'graph' | 'backtest'
+  end_date?: string | null
 }
 
 export type RunSummary = {
@@ -71,6 +81,41 @@ export type RunSummary = {
   ticker: string
   date: string
   status: RunStatus
+  /** graph = LLM pipeline; backtest = execution engine (API always sends; omit in mocks = graph) */
+  mode?: 'graph' | 'backtest'
   decision: 'BUY' | 'SELL' | 'HOLD' | null
   created_at: string
+}
+
+/** End-of-run exposure (backtest); not an intraday trade signal. */
+export type BacktestTerminalExposure = 'long' | 'flat_closed' | 'flat_untraded'
+
+export type BacktestMetrics = {
+  initial_cash: number
+  final_equity: number
+  /** null when initial cash is zero (return not defined). */
+  total_return_pct: number | null
+  unrealized_pnl: number
+  realized_pnl: number
+  total_fees_paid: number
+  fill_count: number
+  max_drawdown_pct: number | null
+  as_of: string | null
+  positions: Record<string, string>
+  terminal_exposure: BacktestTerminalExposure
+  /** Total LLM tokens (LangGraph backtest); 0 when absent or all signal-cache hits. */
+  llm_tokens_in: number
+  llm_tokens_out: number
+}
+
+/** One row from `RunsStore.backtest_trace` (serialized `BacktestEvent`). */
+export type BacktestTraceEvent = {
+  event_type?: string
+  timestamp?: string
+  symbol?: string
+  detail?: string | null
+  signal?: Record<string, unknown> | null
+  fill?: Record<string, unknown> | null
+  rejection?: { code?: string; detail?: string } | null
+  order?: Record<string, unknown> | null
 }

@@ -7,7 +7,12 @@ import logging
 from pathlib import Path
 import json
 from datetime import date
-from typing import Dict, Any, Tuple, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from tradingagents.tracing.jsonl_run_trace import (
+    RunJsonlTraceWriter,
+    summarize_state_chunk_for_trace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +31,11 @@ from tradingagents.agents.utils.agent_states import (
 )
 from tradingagents.dataflows.config import set_config
 
-# Import the new abstract tool methods from agent_utils
-from tradingagents.agents.utils.agent_utils import (
-    get_stock_data,
-    get_indicators,
-    get_fundamentals,
-    get_balance_sheet,
-    get_cashflow,
-    get_income_statement,
-    get_news,
-    get_insider_transactions,
-    get_global_news
+from tradingagents.agents.utils.analyst_tool_lists import (
+    fundamentals_analyst_tools,
+    market_analyst_tools,
+    news_analyst_tools,
+    social_analyst_tools,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -63,6 +62,24 @@ _NODE_TO_STEP = {
 }
 
 _SKIP_NODES = {"tools_market", "tools_news", "tools_fundamentals", "tools_social"}
+
+
+def _graph_node_trace_payload(node_name: str, update: dict) -> dict:
+    """Small summary for JSONL (avoid dumping full state)."""
+    return {"node": node_name, **summarize_state_chunk_for_trace(update)}
+
+# _extract_report returns this when a report field is absent from the update dict,
+# so stream_propagate can emit ("step_key", "") instead of conflating with an
+# intermediate tool-calling step that sets the key to "".
+_MISSING_REPORT = object()
+
+
+def _opt_top_level(update: dict, key: str):
+    """Absent key → sentinel; key present but empty → skip (empty str)."""
+    if key not in update:
+        return _MISSING_REPORT
+    v = update[key]
+    return v if v else ""
 
 
 class TradingAgentsGraph:
@@ -208,37 +225,10 @@ class TradingAgentsGraph:
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
         """Create tool nodes for different data sources using abstract methods."""
         return {
-            "market": ToolNode(
-                [
-                    # Core stock data tools
-                    get_stock_data,
-                    # Technical indicators
-                    get_indicators,
-                ]
-            ),
-            "social": ToolNode(
-                [
-                    # News tools for social media analysis
-                    get_news,
-                ]
-            ),
-            "news": ToolNode(
-                [
-                    # News and insider information
-                    get_news,
-                    get_global_news,
-                    get_insider_transactions,
-                ]
-            ),
-            "fundamentals": ToolNode(
-                [
-                    # Fundamental analysis tools
-                    get_fundamentals,
-                    get_balance_sheet,
-                    get_cashflow,
-                    get_income_statement,
-                ]
-            ),
+            "market": ToolNode(market_analyst_tools()),
+            "social": ToolNode(social_analyst_tools()),
+            "news": ToolNode(news_analyst_tools()),
+            "fundamentals": ToolNode(fundamentals_analyst_tools()),
         }
 
     def propagate(self, company_name, trade_date, thread_id: Optional[str] = None):
@@ -314,26 +304,36 @@ class TradingAgentsGraph:
         return final_state, decision
 
     @staticmethod
-    def _extract_report(step_key: str, update: dict) -> str:
+    def _extract_report(step_key: str, update: dict) -> Any:
         """Extract the relevant report string from a node's state update."""
         extractors = {
-            "market_analyst":       lambda u: u.get("market_report", ""),
-            "news_analyst":         lambda u: u.get("news_report", ""),
-            "fundamentals_analyst": lambda u: u.get("fundamentals_report", ""),
-            "social_analyst":       lambda u: u.get("sentiment_report", ""),
+            "market_analyst":       lambda u: _opt_top_level(u, "market_report"),
+            "news_analyst":         lambda u: _opt_top_level(u, "news_report"),
+            "fundamentals_analyst": lambda u: _opt_top_level(u, "fundamentals_report"),
+            "social_analyst":       lambda u: _opt_top_level(u, "sentiment_report"),
             "bull_researcher":      lambda u: (u.get("investment_debate_state") or {}).get("bull_history", ""),
             "bear_researcher":      lambda u: (u.get("investment_debate_state") or {}).get("bear_history", ""),
-            "research_manager":     lambda u: u.get("investment_plan", ""),
-            "trader":               lambda u: u.get("trader_investment_plan", ""),
+            "research_manager":     lambda u: _opt_top_level(u, "investment_plan"),
+            "trader":               lambda u: _opt_top_level(u, "trader_investment_plan"),
             "aggressive_analyst":   lambda u: (u.get("risk_debate_state") or {}).get("current_aggressive_response", ""),
             "conservative_analyst": lambda u: (u.get("risk_debate_state") or {}).get("current_conservative_response", ""),
             "neutral_analyst":      lambda u: (u.get("risk_debate_state") or {}).get("current_neutral_response", ""),
             "risk_judge":           lambda u: (u.get("risk_debate_state") or {}).get("judge_decision", ""),
             "chief_analyst":        lambda u: json.dumps(u.get("chief_analyst_report") or {}),
         }
-        return extractors[step_key](update) or ""
+        raw = extractors[step_key](update)
+        if raw is _MISSING_REPORT:
+            return _MISSING_REPORT
+        return raw or ""
 
-    def stream_propagate(self, company_name: str, trade_date: str, thread_id=None):
+    def stream_propagate(
+        self,
+        company_name: str,
+        trade_date: str,
+        thread_id=None,
+        run_trace: Optional[RunJsonlTraceWriter] = None,
+        extra_graph_callbacks: Optional[List] = None,
+    ):
         """Stream trading analysis events as each agent node completes.
 
         Yields:
@@ -341,6 +341,10 @@ class TradingAgentsGraph:
 
         After the generator is exhausted, self._last_decision is set to the
         normalized decision string ("BUY", "SELL", or "HOLD").
+
+        Args:
+            run_trace: Optional append-only JSONL writer (e.g. API ``run_id`` trace).
+            extra_graph_callbacks: Merged into LangGraph ``config.callbacks`` (e.g. trace handler).
         """
         self.ticker = company_name
         self._last_decision = None
@@ -362,15 +366,48 @@ class TradingAgentsGraph:
             thread_id = "ta_prog_" + hashlib.sha256(payload).hexdigest()[:24]
 
         init_agent_state = self.propagator.create_initial_state(company_name, trade_date)
-        args = self.propagator.get_graph_args(thread_id=thread_id)
+        merged_callbacks: List = []
+        _cb = getattr(self, "callbacks", None)
+        if _cb:
+            merged_callbacks.extend(_cb)
+        if extra_graph_callbacks:
+            merged_callbacks.extend(extra_graph_callbacks)
+        args = self.propagator.get_graph_args(
+            thread_id=thread_id,
+            callbacks=merged_callbacks or None,
+        )
         args["stream_mode"] = "updates"  # stream per-node deltas, not full state snapshots
 
         thread_config = {"configurable": {"thread_id": thread_id}}
         snap = self.graph.get_state(thread_config)
         stream_input = None if snap.next else init_agent_state
 
+        if run_trace:
+            run_trace.append(
+                "run_start",
+                {
+                    "ticker": company_name,
+                    "trade_date": str(trade_date),
+                    "thread_id": thread_id,
+                    "resume": snap.next is not None,
+                },
+            )
+
         for chunk in self.graph.stream(stream_input, **args):
             node_name, update = next(iter(chunk.items()))
+
+            if run_trace:
+                skipped_tools = node_name in _SKIP_NODES or node_name.startswith(
+                    "Msg Clear"
+                )
+                unknown = node_name not in _NODE_TO_STEP
+                run_trace.append(
+                    "graph_node",
+                    {
+                        **_graph_node_trace_payload(node_name, update),
+                        "skipped_in_client_stream": skipped_tools or unknown,
+                    },
+                )
 
             # Filter: skip list first, then known nodes, else warn and skip
             if node_name in _SKIP_NODES or node_name.startswith("Msg Clear"):
@@ -382,12 +419,25 @@ class TradingAgentsGraph:
             step_key = _NODE_TO_STEP[node_name]
             report = TradingAgentsGraph._extract_report(step_key, update)
 
+            if report is _MISSING_REPORT:
+                yield step_key, ""
+                continue
+
             # Analyst nodes fire twice in a tool-calling loop: once to decide which
             # tools to call (report is empty), then again after tools run to write the
             # final report. Skip the intermediate empty-report firing so the store and
             # frontend only receive the completed report.
             if not report:
                 continue
+
+            if run_trace:
+                run_trace.append(
+                    "stream_emit",
+                    {
+                        "step_key": step_key,
+                        "report_chars": len(report) if isinstance(report, str) else None,
+                    },
+                )
 
             yield step_key, report
 
@@ -414,6 +464,12 @@ class TradingAgentsGraph:
 
         self._last_decision = decision
         self._log_state(trade_date, final_state)
+
+        if run_trace:
+            run_trace.append(
+                "run_complete",
+                {"decision": decision, "thread_id": thread_id},
+            )
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""

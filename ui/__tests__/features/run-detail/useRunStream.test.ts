@@ -89,6 +89,128 @@ test('hydrates from reports when run is complete, skipping SSE', async () => {
   expect(createSSEConnection).not.toHaveBeenCalled()  // SSE skipped for completed run
 })
 
+test('hydrates backtest_summary report separately from agent steps', async () => {
+  const { getRun } = jest.requireMock('@/lib/api-client')
+  const { createSSEConnection } = jest.requireMock('@/lib/sse')
+  jest.clearAllMocks()
+
+  getRun.mockResolvedValueOnce({
+    id: 'bt1',
+    ticker: 'AAPL',
+    date: '2024-01-02',
+    status: 'complete',
+    decision: 'HOLD',
+    created_at: '2024-01-02T00:00:00Z',
+    config: {
+      mode: 'backtest',
+      end_date: '2024-01-10',
+      llm_provider: 'deepseek',
+      deep_think_llm: 'deepseek-reasoner',
+      quick_think_llm: 'deepseek-chat',
+    },
+    reports: { 'backtest_summary:0': 'Backtest: AAPL 2024-01-02 -> 2024-01-10' },
+    error: null,
+    token_usage: {},
+  })
+
+  const { result } = renderHook(() => useRunStream('bt1'))
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+  expect(createSSEConnection).not.toHaveBeenCalled()
+  expect(result.current.mode).toBe('backtest')
+  expect(result.current.endDate).toBe('2024-01-10')
+  expect(result.current.llmProvider).toBe('deepseek')
+  expect(result.current.deepThinkLlm).toBe('deepseek-reasoner')
+  expect(result.current.quickThinkLlm).toBe('deepseek-chat')
+  expect(result.current.backtestSummary).toContain('Backtest: AAPL')
+  expect(result.current.reports['market_analyst']).toEqual([])
+})
+
+test('hydrates backtest_headline and backtest_metrics on completed backtest', async () => {
+  const { getRun } = jest.requireMock('@/lib/api-client')
+  const { createSSEConnection } = jest.requireMock('@/lib/sse')
+  jest.clearAllMocks()
+
+  const metricsJson = JSON.stringify({
+    initial_cash: 100000,
+    final_equity: 96500,
+    total_return_pct: -3.5,
+    unrealized_pnl: 0,
+    realized_pnl: 0,
+    total_fees_paid: 0,
+    fill_count: 2,
+    max_drawdown_pct: null,
+    as_of: null,
+    positions: {},
+    llm_tokens_in: 900,
+    llm_tokens_out: 300,
+  })
+
+  getRun.mockResolvedValueOnce({
+    id: 'bt2',
+    ticker: 'MSFT',
+    date: '2024-01-02',
+    status: 'complete',
+    decision: 'HOLD',
+    created_at: '2024-01-02T00:00:00Z',
+    config: { mode: 'backtest', end_date: '2024-01-05' },
+    reports: {
+      'backtest_headline:0': 'MSFT · 2024-01-02 → 2024-01-05 · 2 fills · Final $96,500.00 · -3.50%',
+      'backtest_metrics:0': metricsJson,
+      'backtest_summary:0': 'full dump',
+    },
+    error: null,
+    token_usage: {},
+  })
+
+  const { result } = renderHook(() => useRunStream('bt2'))
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+  expect(createSSEConnection).not.toHaveBeenCalled()
+  expect(result.current.backtestHeadline).toContain('MSFT')
+  expect(result.current.backtestHeadline).toContain('fills')
+  expect(result.current.backtestMetrics?.final_equity).toBe(96500)
+  expect(result.current.backtestMetrics?.llm_tokens_in).toBe(900)
+  expect(result.current.backtestMetrics?.llm_tokens_out).toBe(300)
+  expect(result.current.tokensTotal).toEqual({ in: 900, out: 300 })
+  expect(result.current.backtestSummary).toBe('full dump')
+})
+
+test('hydrates backtest_trace on completed backtest', async () => {
+  const { getRun } = jest.requireMock('@/lib/api-client')
+  const { createSSEConnection } = jest.requireMock('@/lib/sse')
+  jest.clearAllMocks()
+
+  getRun.mockResolvedValueOnce({
+    id: 'bt3',
+    ticker: 'MSFT',
+    date: '2024-01-02',
+    status: 'complete',
+    decision: 'HOLD',
+    created_at: '2024-01-02T00:00:00Z',
+    config: { mode: 'backtest', end_date: '2024-01-05' },
+    reports: { 'backtest_summary:0': 'summary' },
+    error: null,
+    token_usage: {},
+    backtest_trace: [
+      {
+        event_type: 'SIGNAL_GENERATED',
+        timestamp: '2024-01-02T21:00:00+00:00',
+        symbol: 'MSFT',
+        signal: { direction: 'HOLD', reasoning: 'No edge' },
+      },
+    ],
+  })
+
+  const { result } = renderHook(() => useRunStream('bt3'))
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)) })
+
+  expect(createSSEConnection).not.toHaveBeenCalled()
+  expect(result.current.backtestTrace).toHaveLength(1)
+  expect(result.current.backtestTrace?.[0].event_type).toBe('SIGNAL_GENERATED')
+  expect(result.current.backtestTrace?.[0].signal?.direction).toBe('HOLD')
+})
+
 test('AGENT_COMPLETE accumulates tokensByStep and tokensTotal', async () => {
   const { getRun } = jest.requireMock('@/lib/api-client')
   const { createSSEConnection } = jest.requireMock('@/lib/sse')

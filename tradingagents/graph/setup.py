@@ -13,6 +13,22 @@ from tradingagents.agents.utils.agent_states import AgentState
 from .conditional_logic import ConditionalLogic
 
 
+def _wrap_tool_node_with_round_increment(base: ToolNode, role: str):
+    """After each tools_* execution, bump analyst_tool_rounds[role] for cap checks."""
+
+    def tool_node(state: AgentState):
+        result = base.invoke(state)
+        prev = dict(state.get("analyst_tool_rounds") or {})
+        prev[role] = prev.get(role, 0) + 1
+        if not isinstance(result, dict):
+            raise TypeError(
+                f"ToolNode.invoke for role {role!r} must return dict, got {type(result).__name__}"
+            )
+        return {**result, "analyst_tool_rounds": prev}
+
+    return tool_node
+
+
 class GraphSetup:
     """Handles the setup and configuration of the agent graph."""
 
@@ -66,28 +82,36 @@ class GraphSetup:
                 self.quick_thinking_llm
             )
             delete_nodes["market"] = create_msg_delete()
-            tool_nodes["market"] = self.tool_nodes["market"]
+            tool_nodes["market"] = _wrap_tool_node_with_round_increment(
+                self.tool_nodes["market"], "market"
+            )
 
         if "social" in selected_analysts:
             analyst_nodes["social"] = create_social_media_analyst(
                 self.quick_thinking_llm
             )
             delete_nodes["social"] = create_msg_delete()
-            tool_nodes["social"] = self.tool_nodes["social"]
+            tool_nodes["social"] = _wrap_tool_node_with_round_increment(
+                self.tool_nodes["social"], "social"
+            )
 
         if "news" in selected_analysts:
             analyst_nodes["news"] = create_news_analyst(
                 self.quick_thinking_llm
             )
             delete_nodes["news"] = create_msg_delete()
-            tool_nodes["news"] = self.tool_nodes["news"]
+            tool_nodes["news"] = _wrap_tool_node_with_round_increment(
+                self.tool_nodes["news"], "news"
+            )
 
         if "fundamentals" in selected_analysts:
             analyst_nodes["fundamentals"] = create_fundamentals_analyst(
                 self.quick_thinking_llm
             )
             delete_nodes["fundamentals"] = create_msg_delete()
-            tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
+            tool_nodes["fundamentals"] = _wrap_tool_node_with_round_increment(
+                self.tool_nodes["fundamentals"], "fundamentals"
+            )
 
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(
@@ -130,6 +154,33 @@ class GraphSetup:
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Risk Judge", risk_manager_node)
 
+        selected_tuple = tuple(selected_analysts)
+        last_analyst_name = f"{selected_analysts[-1].capitalize()} Analyst"
+
+        def as_of_gate(state):
+            if self.conditional_logic.analyst_reports_include_as_of(
+                state, selected_tuple
+            ):
+                return {"as_of_gate_failures": 0}
+            f = state.get("as_of_gate_failures", 0)
+            if f == 0:
+                return {"as_of_gate_failures": 1}
+            if f == 1:
+                return {"as_of_gate_failures": 2}
+            return {}
+
+        def route_after_as_of_gate(state):
+            if self.conditional_logic.analyst_reports_include_as_of(
+                state, selected_tuple
+            ):
+                return "Bull Researcher"
+            if state.get("as_of_gate_failures", 0) == 1:
+                return last_analyst_name
+            self.conditional_logic.log_as_of_gate_bypass(selected_tuple)
+            return "Bull Researcher"
+
+        workflow.add_node("As-Of Gate", as_of_gate)
+
         # Define edges
         # Start with the first analyst
         first_analyst = selected_analysts[0]
@@ -154,7 +205,16 @@ class GraphSetup:
                 next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
                 workflow.add_edge(current_clear, next_analyst)
             else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+                workflow.add_edge(current_clear, "As-Of Gate")
+
+        workflow.add_conditional_edges(
+            "As-Of Gate",
+            route_after_as_of_gate,
+            {
+                "Bull Researcher": "Bull Researcher",
+                last_analyst_name: last_analyst_name,
+            },
+        )
 
         # Add remaining edges
         workflow.add_conditional_edges(

@@ -51,6 +51,8 @@ class Propagator:
             "fundamentals_report": "",
             "sentiment_report": "",
             "news_report": "",
+            "as_of_gate_failures": 0,
+            "analyst_tool_rounds": {},
         }
 
     def get_graph_args(

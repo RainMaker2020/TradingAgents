@@ -11,7 +11,17 @@ export const DEFAULT_WORKSPACE_SETTINGS = {
   quick_think_llm: 'gpt-5-mini',
   max_debate_rounds: 1,
   max_risk_discuss_rounds: 1,
+  execution_mode: 'graph' as const,
+  profile_preset: null as 'fast' | 'balanced' | 'deep' | null,
 } as const
+
+/** Maps debate round count to Profile toolbar highlight (1/2/3 only). */
+export function inferProfileFromRounds(rounds: number): 'fast' | 'balanced' | 'deep' | null {
+  if (rounds === 1) return 'fast'
+  if (rounds === 2) return 'balanced'
+  if (rounds === 3) return 'deep'
+  return null
+}
 
 export const PROVIDER_MODEL_DEFAULTS: Record<string, { deep: string; quick: string }> = {
   openai:    { deep: 'gpt-5.2',           quick: 'gpt-5-mini' },

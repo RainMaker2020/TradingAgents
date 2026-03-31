@@ -1,9 +1,103 @@
+from __future__ import annotations
+
 from typing import Annotated
 from datetime import datetime
+from io import StringIO
 from dateutil.relativedelta import relativedelta
 import yfinance as yf
-import os
+import pandas as pd
+from pathlib import Path
 from .stockstats_utils import StockstatsUtils, _clean_dataframe
+from .config import get_config
+from .yahoo_symbol import resolve_yahoo_ticker
+
+
+def _yfin_cache_path(symbol: str, start_date: str, end_date: str) -> Path:
+    config = get_config()
+    cache_dir = Path(config["data_cache_dir"])
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    ysym = resolve_yahoo_ticker(symbol)
+    return cache_dir / f"{ysym.upper()}-YFin-data-{start_date}-{end_date}.csv"
+
+
+def _load_yfin_dataframe_from_csv(csv_text: str) -> pd.DataFrame:
+    raw = csv_text.strip()
+    if not raw:
+        return pd.DataFrame()
+    df = pd.read_csv(StringIO(raw))
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], utc=False)
+        df = df.set_index("Date")
+    else:
+        c0 = df.columns[0]
+        df = df.set_index(pd.to_datetime(df[c0], utc=False))
+        df = df.drop(columns=[c0])
+    if df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    df.index.name = "Date"
+    return df.sort_index()
+
+
+def _format_yfin_compact_summary(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    df: pd.DataFrame,
+    source: str,
+    as_of: datetime,
+) -> str:
+    if df.empty:
+        return (
+            f"No data found for symbol '{symbol}' between {start_date} and {end_date}"
+        )
+    required = ("Open", "High", "Low", "Close", "Volume")
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"Expected columns {missing} missing in Yahoo Finance data")
+    work = df.loc[:, list(required)].copy()
+    work = work.sort_index()
+    n = len(work)
+    start_pos = max(0, n - 5)
+    lines = [
+        f"# Stock data for {symbol.upper()} from {start_date} to {end_date}",
+        f"# Total records: {n}",
+        f"# Data source: {source}",
+        f"# As of: {as_of.strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "## Last rows (OHLCV, % vs prior close)",
+        "",
+        "| Date | Open | High | Low | Close | Volume | % vs prior |",
+        "|------|-----:|-----:|----:|------:|-------:|-----------|",
+    ]
+
+    def _cell(x: object, *, decimals: int) -> str:
+        if pd.isna(x):
+            return "N/A"
+        v = float(x)
+        if decimals == 0:
+            return f"{v:.0f}"
+        return f"{v:.{decimals}f}"
+
+    for pos in range(start_pos, n):
+        row = work.iloc[pos]
+        dt = work.index[pos]
+        dstr = pd.Timestamp(dt).strftime("%Y-%m-%d")
+        pct = "N/A"
+        if pos > 0:
+            prev_close = float(work.iloc[pos - 1]["Close"])
+            cur_close = float(row["Close"])
+            if prev_close != 0 and pd.notna(prev_close) and pd.notna(cur_close):
+                pct = f"{(cur_close / prev_close - 1) * 100:.2f}%"
+
+        line = (
+            f"| {dstr} | {_cell(row['Open'], decimals=2)} | {_cell(row['High'], decimals=2)} "
+            f"| {_cell(row['Low'], decimals=2)} | {_cell(row['Close'], decimals=2)} "
+            f"| {_cell(row['Volume'], decimals=0)} | {pct} |"
+        )
+        lines.append(line)
+    lines.append("")
+    return "\n".join(lines)
+
 
 def get_YFin_data_online(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -13,9 +107,18 @@ def get_YFin_data_online(
 
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
+    cache_path = _yfin_cache_path(symbol, start_date, end_date)
 
-    # Create ticker object
-    ticker = yf.Ticker(symbol.upper())
+    if cache_path.exists():
+        csv_string = cache_path.read_text(encoding="utf-8")
+        df = _load_yfin_dataframe_from_csv(csv_string)
+        as_of = datetime.fromtimestamp(cache_path.stat().st_mtime)
+        return _format_yfin_compact_summary(
+            symbol, start_date, end_date, df, "cache", as_of
+        )
+
+    # Create ticker object (use Yahoo canonical symbol, e.g. BTC -> BTC-USD)
+    ticker = yf.Ticker(resolve_yahoo_ticker(symbol))
 
     # Fetch historical data for the specified date range
     data = ticker.history(start=start_date, end=end_date)
@@ -38,13 +141,12 @@ def get_YFin_data_online(
 
     # Convert DataFrame to CSV string
     csv_string = data.to_csv()
+    cache_path.write_text(csv_string, encoding="utf-8")
 
-    # Add header information
-    header = f"# Stock data for {symbol.upper()} from {start_date} to {end_date}\n"
-    header += f"# Total records: {len(data)}\n"
-    header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-
-    return header + csv_string
+    as_of = datetime.now()
+    return _format_yfin_compact_summary(
+        symbol, start_date, end_date, data, "online", as_of
+    )
 
 def get_stock_stats_indicators_window(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -204,11 +306,12 @@ def _get_stock_stats_bulk(
     
     if not online:
         # Local data path
+        ysym = resolve_yahoo_ticker(symbol)
         try:
             data = pd.read_csv(
                 os.path.join(
                     config.get("data_cache_dir", "data"),
-                    f"{symbol}-YFin-data-2015-01-01-2025-03-25.csv",
+                    f"{ysym}-YFin-data-2015-01-01-2025-03-25.csv",
                 ),
                 on_bad_lines="skip",
             )
@@ -226,16 +329,17 @@ def _get_stock_stats_bulk(
 
         os.makedirs(config["data_cache_dir"], exist_ok=True)
 
+        ysym = resolve_yahoo_ticker(symbol)
         data_file = os.path.join(
             config["data_cache_dir"],
-            f"{symbol}-YFin-data-{start_date_str}-{end_date_str}.csv",
+            f"{ysym}-YFin-data-{start_date_str}-{end_date_str}.csv",
         )
 
         if os.path.exists(data_file):
             data = pd.read_csv(data_file, on_bad_lines="skip")
         else:
             data = yf.download(
-                symbol,
+                ysym,
                 start=start_date_str,
                 end=end_date_str,
                 multi_level_index=False,

@@ -39,6 +39,9 @@ tradingagents = "cli.main:app"
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*"]
 
+[tool.setuptools.package-data]
+tradingagents = ["skills/builtin/*/SKILL.md"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 norecursedirs = ["venv", ".venv", ".worktrees", "node_modules", ".git"]
