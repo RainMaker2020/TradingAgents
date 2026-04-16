@@ -1,0 +1,134 @@
+/* Dataflow canvas — edge + rendering polish */
+.flow-canvas-wrap--dataflow {
+  --flow-edge: rgba(0, 196, 232, 0.52);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.flow-canvas-wrap--dataflow .react-flow__renderer {
+  shape-rendering: geometricPrecision;
+}
+
+.flow-canvas-wrap--dataflow .react-flow__edge-path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flow-canvas-wrap--dataflow .react-flow__connectionline {
+  stroke: var(--flow-edge);
+  stroke-width: 2px;
+}
+
+.flow-field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+}
+
+.flow-canvas-wrap .react-flow__node {
+  font-family: var(--font-manrope), system-ui, sans-serif;
+}
+
+.flow-canvas-wrap .react-flow__controls-button {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  fill: var(--text-mid);
+}
+
+.flow-canvas-wrap .react-flow__controls-button:hover {
+  background: var(--bg-hover);
+}
+
+/* Run monitor: hold opacity until fitView + stagger (keyframes: globals.css fadeIn) */
+.flow-canvas-wrap--dataflow .flow-node--enter-wait {
+  opacity: 0;
+}
+
+.flow-canvas-wrap--dataflow .flow-node--enter-fade {
+  animation: fadeIn 0.4s ease forwards;
+  opacity: 0;
+}
+
+/* Active agent ring — align with PipelineStepper running (hold ring + accent glow) */
+@keyframes agent-ring-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px var(--hold-ring), 0 0 8px var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--hold-ring), 0 0 18px rgba(255, 180, 0, 0.28);
+  }
+}
+
+.flow-canvas-wrap--dataflow .flow-node--agent-running {
+  animation: agent-ring-pulse 2.2s ease-in-out infinite;
+}
+
+/* Live path: edges into running nodes (animated flag set in decorateMonitorEdges) */
+.flow-canvas-wrap--dataflow .react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 5 8;
+  animation: flow-edge-dash 0.55s linear infinite;
+}
+
+@keyframes flow-edge-dash {
+  to {
+    stroke-dashoffset: -26;
+  }
+}
+
+.flow-canvas-wrap--dataflow .flow-node--phase-mini-running {
+  animation: pulse-glow 2.4s ease-in-out infinite;
+}
+
+/* Pipeline stages: shimmer accent bar — keyframes from globals.css (shimmer) */
+.flow-canvas-wrap--dataflow .flow-node--pipeline.flow-node--pipeline-running {
+  position: relative;
+  overflow: hidden;
+}
+
+.flow-canvas-wrap--dataflow .flow-node--pipeline-running::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
+  animation: shimmer 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.flow-canvas-wrap--dataflow .flow-node--backtest-running {
+  animation: pulse-glow 2.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-canvas-wrap--dataflow .flow-node--enter-wait,
+  .flow-canvas-wrap--dataflow .flow-node--enter-fade {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
+  .flow-canvas-wrap--dataflow .flow-node--agent-running,
+  .flow-canvas-wrap--dataflow .flow-node--phase-mini-running,
+  .flow-canvas-wrap--dataflow .flow-node--backtest-running {
+    animation: none;
+    box-shadow: 0 0 0 1px var(--hold-ring), 0 0 10px var(--accent-glow);
+  }
+
+  .flow-canvas-wrap--dataflow .flow-node--pipeline-running::after {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  .flow-canvas-wrap--dataflow .react-flow__edge.animated .react-flow__edge-path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}

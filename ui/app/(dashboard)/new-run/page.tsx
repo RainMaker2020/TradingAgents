@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import RunConfigForm from '@/features/new-run/components/RunConfigForm'
+import RunFlowWorkspace from '@/features/flow-editor/components/RunFlowWorkspace'
 import MetricStrip from '@/components/dashboard/MetricStrip'
 import Panel from '@/components/dashboard/Panel'
 import { useWorkspaceRuntime } from '@/features/dashboard/hooks/useWorkspaceRuntime'
@@ -16,10 +17,14 @@ import {
 } from '@/lib/runModeSidebarCopy'
 
 export default function NewRunPage() {
-  const [executionMode, setExecutionMode] = useState<'graph' | 'backtest'>('graph')
+  const [form, setForm] = useState(DEFAULT_FORM)
+  const setExecutionMode = useCallback((m: 'graph' | 'backtest') => {
+    setForm((f) => (f.mode === m ? f : { ...f, mode: m }))
+  }, [])
+  const executionMode = form.mode
   const runtime = useWorkspaceRuntime()
   const phaseCount = new Set(AGENT_STEPS.map((step) => STEP_PHASE[step])).size
-  const analystsEnabled = DEFAULT_FORM.enabled_analysts.length
+  const analystsEnabled = form.enabled_analysts.length
 
   const metricItems =
     executionMode === 'backtest'
@@ -67,49 +72,66 @@ export default function NewRunPage() {
 
       <MetricStrip items={metricItems} />
 
-      <div className="ws-grid-2 animate-fade-up">
-        <RunConfigForm onExecutionModeChange={setExecutionMode} />
+      <div className="space-y-3 animate-fade-up">
+        <RunFlowWorkspace
+          form={form}
+          onFormChange={setForm}
+          onExecutionModeChange={setExecutionMode}
+          settingsPanel={
+            <RunConfigForm
+              value={form}
+              onChange={setForm}
+              onExecutionModeChange={setExecutionMode}
+            />
+          }
+        />
 
-        <div className="space-y-3">
-          <Panel
-            title="Execution Flow"
-            subtitle={
-              executionMode === 'backtest'
-                ? 'Backtest (Engine) · what happens after launch'
-                : 'Graph (LLM) · what happens after launch'
-            }
-          >
-            <ol className="space-y-2">
-              {(executionMode === 'backtest' ? EXECUTION_FLOW_BACKTEST : EXECUTION_FLOW_GRAPH).map((line, idx) => (
-                <li key={line} className="flex gap-2.5">
-                  <span
-                    className="terminal-text text-[10px] pt-0.5"
-                    style={{ color: 'var(--accent-light)', minWidth: '22px' }}
-                  >
-                    {String(idx + 1).padStart(2, '0')}
-                  </span>
-                  <span className="text-[13px]" style={{ color: 'var(--text-mid)' }}>
-                    {line}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </Panel>
+        <div className="ws-grid-2">
+          <div className="space-y-3">
+            <Panel
+              title="Execution Flow"
+              subtitle={
+                executionMode === 'backtest'
+                  ? 'Backtest (Engine) · what happens after launch'
+                  : 'Graph (LLM) · what happens after launch'
+              }
+            >
+              <ol className="space-y-2">
+                {(executionMode === 'backtest' ? EXECUTION_FLOW_BACKTEST : EXECUTION_FLOW_GRAPH).map((line, idx) => (
+                  <li key={line} className="flex gap-2.5">
+                    <span
+                      className="terminal-text text-[10px] pt-0.5"
+                      style={{ color: 'var(--accent-light)', minWidth: '22px' }}
+                    >
+                      {String(idx + 1).padStart(2, '0')}
+                    </span>
+                    <span className="text-[13px]" style={{ color: 'var(--text-mid)' }}>
+                      {line}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </Panel>
+          </div>
 
-          <Panel
-            title="Operator Guidance"
-            subtitle={
-              executionMode === 'backtest'
-                ? 'Backtest (Engine) · pre-launch checks'
-                : 'Graph (LLM) · pre-launch checks'
-            }
-          >
-            <ul className="space-y-2 text-[12px]" style={{ color: 'var(--text-mid)' }}>
-              {(executionMode === 'backtest' ? OPERATOR_GUIDANCE_PRE_BACKTEST : OPERATOR_GUIDANCE_PRE_GRAPH).map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </Panel>
+          <div className="space-y-3">
+            <Panel
+              title="Operator Guidance"
+              subtitle={
+                executionMode === 'backtest'
+                  ? 'Backtest (Engine) · pre-launch checks'
+                  : 'Graph (LLM) · pre-launch checks'
+              }
+            >
+              <ul className="space-y-2 text-[12px]" style={{ color: 'var(--text-mid)' }}>
+                {(executionMode === 'backtest' ? OPERATOR_GUIDANCE_PRE_BACKTEST : OPERATOR_GUIDANCE_PRE_GRAPH).map(
+                  (line) => (
+                    <li key={line}>{line}</li>
+                  ),
+                )}
+              </ul>
+            </Panel>
+          </div>
         </div>
       </div>
     </>

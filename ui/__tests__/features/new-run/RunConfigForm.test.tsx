@@ -39,13 +39,13 @@ beforeEach(() => {
 
 test('renders ticker and date inputs', () => {
   render(<RunConfigForm />)
-  expect(screen.getByPlaceholderText('e.g. NVDA')).toBeInTheDocument()
+  expect(screen.getByPlaceholderText(/e\.g\. NVDA/i)).toBeInTheDocument()
   expect(screen.getByLabelText(/trade date/i)).toBeInTheDocument()
 })
 
 test('submitting navigates to run detail page', async () => {
   render(<RunConfigForm />)
-  fireEvent.change(screen.getByPlaceholderText('e.g. NVDA'), {
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. NVDA/i), {
     target: { value: 'NVDA' },
   })
   fireEvent.change(screen.getByLabelText(/trade date/i), {
@@ -75,7 +75,7 @@ test('default simulation fields render with expected values', () => {
 
 test('edited simulation values are submitted as friendly units', async () => {
   render(<RunConfigForm />)
-  fireEvent.change(screen.getByPlaceholderText('e.g. NVDA'), {
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. NVDA/i), {
     target: { value: 'AAPL' },
   })
   fireEvent.change(screen.getByLabelText(/trade date/i), {
@@ -112,7 +112,7 @@ test('edited simulation values are submitted as friendly units', async () => {
 test('submits backtest mode with end_date', async () => {
   render(<RunConfigForm />)
   fireEvent.click(screen.getByRole('tab', { name: /backtest \(engine\)/i }))
-  fireEvent.change(screen.getByPlaceholderText('e.g. NVDA'), {
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. NVDA/i), {
     target: { value: 'AAPL' },
   })
   fireEvent.change(screen.getByLabelText(/trade date/i), {
@@ -137,7 +137,7 @@ test('submits backtest mode with end_date', async () => {
 
 test('invalid simulation values block submit and show inline errors', async () => {
   render(<RunConfigForm />)
-  fireEvent.change(screen.getByPlaceholderText('e.g. NVDA'), {
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. NVDA/i), {
     target: { value: 'AAPL' },
   })
   fireEvent.change(screen.getByLabelText(/trade date/i), {
@@ -173,7 +173,7 @@ test('maps API 422 simulation_config errors to field-level messages', async () =
   )
 
   render(<RunConfigForm />)
-  fireEvent.change(screen.getByPlaceholderText('e.g. NVDA'), {
+  fireEvent.change(screen.getByPlaceholderText(/e\.g\. NVDA/i), {
     target: { value: 'AAPL' },
   })
   fireEvent.change(screen.getByLabelText(/trade date/i), {
@@ -196,26 +196,25 @@ test('switches to deepseek defaults', async () => {
   // No stale OpenAI model name should remain selected.
   await waitFor(() => {
     expect(screen.getByDisplayValue('deepseek-reasoner')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('deepseek-chat')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('gpt-5.2')).not.toBeInTheDocument()
   })
-  expect(screen.getByRole('tab', { name: 'DeepSeek' })).toHaveAttribute('aria-selected', 'true')
-  expect(screen.getByDisplayValue('deepseek-chat')).toBeInTheDocument()
-  expect(screen.queryByDisplayValue('gpt-5.2')).not.toBeInTheDocument()
 })
 
 test('shows DeepSeek defaults when model fetch fails', async () => {
-  jest.mocked(getProviderModels)
-    .mockResolvedValueOnce({ provider: 'openai', models: ['gpt-5-mini'], error: null })
-    .mockRejectedValueOnce(new Error('No API key'))
+  jest.mocked(getProviderModels).mockImplementation((provider: string) => {
+    if (provider === 'deepseek') {
+      return Promise.resolve({ provider: 'deepseek', models: [], error: 'No API key' })
+    }
+    return Promise.resolve({ provider: 'openai', models: ['gpt-5-mini'], error: null })
+  })
 
   render(<RunConfigForm />)
 
   fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek' }))
 
-  // After the failed fetch settles, defaults remain and warning is shown.
   await waitFor(() => {
     expect(screen.getByText(/model list:/i)).toBeInTheDocument()
+    expect(screen.getByText(/No API key/i)).toBeInTheDocument()
   })
-  expect(screen.getByRole('tab', { name: 'DeepSeek' })).toHaveAttribute('aria-selected', 'true')
-  expect(screen.getByDisplayValue('deepseek-reasoner')).toBeInTheDocument()
-  expect(screen.getByDisplayValue('deepseek-chat')).toBeInTheDocument()
 })

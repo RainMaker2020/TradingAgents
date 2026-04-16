@@ -16,7 +16,10 @@ import {
   OPERATOR_GUIDANCE_POST_BACKTEST,
   OPERATOR_GUIDANCE_POST_GRAPH,
 } from '@/lib/runModeSidebarCopy'
+import RunFlowMonitor from '@/features/flow-editor/components/RunFlowMonitor'
+import { DEFAULT_FORM } from '@/features/new-run/types'
 import { AGENT_STEP_LABELS } from '@/lib/types/run'
+import type { NewRunFormState } from '@/features/new-run/types'
 import type { AgentStep, BacktestTerminalExposure } from '@/lib/types/run'
 
 const STATUS_CONFIG: Record<string, {
@@ -116,6 +119,21 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
     }
     return null
   }, [backtestHeadline, backtestMetrics, ticker, date, endDate])
+
+  /** Visual pipeline map only — derived from stream meta + defaults; not the execution engine graph. */
+  const monitorForm: NewRunFormState = useMemo(
+    () => ({
+      ...DEFAULT_FORM,
+      ticker: ticker ?? '',
+      date: date ?? '',
+      mode: mode === 'backtest' ? ('backtest' as const) : ('graph' as const),
+      end_date: endDate ?? '',
+      llm_provider: llmProvider ?? DEFAULT_FORM.llm_provider,
+      deep_think_llm: deepThinkLlm ?? DEFAULT_FORM.deep_think_llm,
+      quick_think_llm: quickThinkLlm ?? DEFAULT_FORM.quick_think_llm,
+    }),
+    [ticker, date, mode, endDate, llmProvider, deepThinkLlm, quickThinkLlm],
+  )
 
   const metricItems = isBacktest
     ? backtestMetrics
@@ -219,6 +237,10 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
       </div>
 
       <MetricStrip items={metricItems} />
+
+      <Panel title="Pipeline map" subtitle="Read-only · status overlays from the live stream (visual layer only)">
+        <RunFlowMonitor form={monitorForm} steps={steps} streamStatus={status} />
+      </Panel>
 
       <Toolbar
         left={

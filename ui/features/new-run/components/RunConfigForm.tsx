@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from 'react'
 import AnalystSelector from './AnalystSelector'
 import { useRunSubmit } from '../hooks/useRunSubmit'
 import { DEFAULT_FORM } from '../types'
@@ -37,10 +37,36 @@ function FieldLabel({
 type RunConfigFormProps = {
   /** Notifies parent (e.g. sidebar copy) when mode changes or hydrates from settings. */
   onExecutionModeChange?: (mode: 'graph' | 'backtest') => void
+  /** Controlled run configuration (enables flow canvas ↔ form sync). */
+  value?: NewRunFormState
+  onChange?: (next: NewRunFormState) => void
+  /** Fires after any internal state commit (controlled or uncontrolled). */
+  onFormSnapshot?: (snapshot: NewRunFormState) => void
 }
 
-export default function RunConfigForm({ onExecutionModeChange }: RunConfigFormProps = {}) {
-  const [form, setForm] = useState<NewRunFormState>(DEFAULT_FORM)
+export default function RunConfigForm({
+  onExecutionModeChange,
+  value,
+  onChange,
+  onFormSnapshot,
+}: RunConfigFormProps = {}) {
+  const [internalForm, setInternalForm] = useState<NewRunFormState>(DEFAULT_FORM)
+  const form = value ?? internalForm
+
+  const commitForm = (next: NewRunFormState) => {
+    if (value === undefined) setInternalForm(next)
+    onChange?.(next)
+    onFormSnapshot?.(next)
+  }
+
+  const setForm = (updater: SetStateAction<NewRunFormState>) => {
+    const prev = form
+    const next =
+      typeof updater === 'function'
+        ? (updater as (p: NewRunFormState) => NewRunFormState)(prev)
+        : updater
+    commitForm(next)
+  }
   const [simulationErrors, setSimulationErrors] = useState<SimulationErrors>({})
   const [runTargetErrors, setRunTargetErrors] = useState<RunTargetErrors>({})
   const [prefsHydrated, setPrefsHydrated] = useState(false)
@@ -91,9 +117,16 @@ export default function RunConfigForm({ onExecutionModeChange }: RunConfigFormPr
     }
   }, [])
 
+  const lastReportedModeRef = useRef<'graph' | 'backtest' | undefined>(undefined)
+  const onExecutionModeChangeRef = useRef(onExecutionModeChange)
+  onExecutionModeChangeRef.current = onExecutionModeChange
+
+  /** Notify parent when execution mode changes; avoid depending on unstable callback identity. */
   useLayoutEffect(() => {
-    onExecutionModeChange?.(form.mode)
-  }, [form.mode, onExecutionModeChange])
+    if (lastReportedModeRef.current === form.mode) return
+    lastReportedModeRef.current = form.mode
+    onExecutionModeChangeRef.current?.(form.mode)
+  }, [form.mode])
 
   useEffect(() => {
     if (!prefsHydrated) return
